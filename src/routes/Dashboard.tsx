@@ -60,8 +60,11 @@ export default function Dashboard() {
       <PageHeader eyebrow="Ferrous Wheels" title="Dashboard" />
 
       <div className="space-y-8 px-4 py-6 md:px-8">
-        {/* Hero: how much season is left, and what it is pointed at. */}
-        <section className="bg-card border-border rounded-lg border p-5 md:p-7">
+        {/* Hero: how much season is left, and what it is pointed at.
+            On the ink slab rather than a card — this is the one fact the page
+            owes the team, and a white card among white cards makes it just the
+            first row of a list. */}
+        <section className="bg-ink text-ink-foreground rounded-lg p-5 md:p-7">
           {nextDeadline ? (
             <div className="flex flex-wrap items-end gap-x-4 gap-y-1">
               <span className="u-display tabular font-mono text-5xl leading-none md:text-6xl">
@@ -81,9 +84,10 @@ export default function Dashboard() {
                 season={season.data}
                 events={calendar.data}
                 now={now}
+                onInk
               />
             ) : (
-              <Skeleton className="h-16" />
+              <Skeleton className="bg-ink-foreground/10 h-16" />
             )}
           </div>
         </section>
@@ -160,7 +164,7 @@ export default function Dashboard() {
               <div className="bg-card border-border rounded-lg border p-4">
                 {meetings.data?.[0] ? (
                   <>
-                    <div className="u-display text-base">
+                    <div className="u-display text-heading text-base">
                       {formatLongDate(meetings.data[0].starts_at)}
                     </div>
                     <div className="text-muted-foreground mt-0.5 text-sm">

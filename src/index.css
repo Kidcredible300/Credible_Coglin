@@ -43,9 +43,31 @@
   --goblin-500: oklch(0.72 0.17 152); /* reserved: "ready" */
   --red-alliance: oklch(0.58 0.22 27); /* doubles as destructive */
 
-  /* Semantic — shadcn's own names, so every primitive is on-brand for free */
-  --background: oklch(0.985 0.002 250);
-  --foreground: oklch(0.19 0.01 250);
+  /* INK — the second surface.
+
+     A deep alliance-blue slab used where the app ASSERTS (the sidebar, the
+     dashboard's season hero) rather than presents a document. It is what stops
+     the product reading as another white-card SaaS dashboard: the chrome is a
+     piece of equipment, the content sits on paper.
+
+     Deliberately theme-INDEPENDENT. Ink is a surface, not a background — in
+     dark mode it sits above the graphite as an elevated panel, exactly as it
+     sits below the paper in light mode. Everything that lands on it is defined
+     as white at an opacity, so one slab colour carries the whole family. */
+  --ink: oklch(0.28 0.06 257);
+  --ink-foreground: oklch(1 0 0);
+  --ink-muted: oklch(0.78 0.025 255); /* secondary text on ink */
+  --ink-subtle: oklch(0.62 0.03 255); /* de-emphasised: "soon" badges */
+  --ink-border: oklch(1 0 0 / 12%);
+  /* The tape red is too dark to read against the slab; this is the same
+     alarm at dark-surface lightness. */
+  --ink-destructive: oklch(0.68 0.2 25);
+
+  /* Semantic — shadcn's own names, so every primitive is on-brand for free.
+     The light neutrals carry a trace of the ink's hue rather than sitting at
+     true grey, so paper and slab look like one material under one light. */
+  --background: oklch(0.985 0.003 250);
+  --foreground: oklch(0.25 0.045 257);
   --card: oklch(1 0 0);
   --card-foreground: var(--foreground);
   --popover: oklch(1 0 0);
@@ -59,16 +81,21 @@
      itself would dull the fills, which are the brand. */
   --primary-ink: oklch(0.52 0.18 40);
 
-  --secondary: oklch(0.955 0.004 250);
-  --secondary-foreground: oklch(0.28 0.012 250);
-  --muted: oklch(0.955 0.004 250);
-  --muted-foreground: oklch(0.49 0.012 250);
-  --accent: oklch(0.94 0.008 250);
-  --accent-foreground: oklch(0.24 0.012 250);
+  /* Display type and figures are set in the ink on paper — headings, stat
+     values, the team number. A token rather than `.u-display { color }` so
+     the same class can go white when it lands ON the slab. */
+  --heading: var(--ink);
+
+  --secondary: oklch(0.955 0.006 255);
+  --secondary-foreground: oklch(0.3 0.035 257);
+  --muted: oklch(0.955 0.006 255);
+  --muted-foreground: oklch(0.5 0.025 255);
+  --accent: oklch(0.94 0.008 255);
+  --accent-foreground: oklch(0.26 0.04 257);
 
   --destructive: var(--red-alliance);
-  --border: oklch(0.9 0.006 250);
-  --input: oklch(0.9 0.006 250);
+  --border: oklch(0.9 0.008 255);
+  --input: oklch(0.9 0.008 255);
   --ring: var(--tape-500);
 
   --info: var(--alliance-500);
@@ -76,7 +103,7 @@
   /* Evidence readiness. This is the product's signature scale — it appears on
      the award tracker, the portfolio planner and the dashboard, so it gets
      real tokens rather than ad-hoc greens. */
-  --readiness-none: oklch(0.88 0.005 250);
+  --readiness-none: oklch(0.92 0.006 255);
   --readiness-partial: var(--tape-500);
   --readiness-ready: var(--goblin-500);
 
@@ -86,13 +113,16 @@
   --chart-4: oklch(0.7 0.13 90);
   --chart-5: oklch(0.55 0.1 300);
 
-  --sidebar: oklch(0.965 0.003 250);
-  --sidebar-foreground: var(--foreground);
+  /* The sidebar IS the ink slab, so these are aliases rather than a second
+     palette. Kept so any shadcn component reaching for sidebar tokens lands
+     on the same surface the shell paints. */
+  --sidebar: var(--ink);
+  --sidebar-foreground: var(--ink-foreground);
   --sidebar-primary: var(--tape-500);
   --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: oklch(0.93 0.008 250);
-  --sidebar-accent-foreground: oklch(0.24 0.012 250);
-  --sidebar-border: oklch(0.9 0.006 250);
+  --sidebar-accent: oklch(1 0 0 / 10%);
+  --sidebar-accent-foreground: var(--ink-foreground);
+  --sidebar-border: var(--ink-border);
   --sidebar-ring: var(--tape-500);
 
   /* Slightly tighter than shadcn's 0.625rem default: the register is machined
@@ -126,6 +156,11 @@
      converge here. */
   --primary-ink: var(--tape-500);
 
+  /* The ink family is NOT restated — it is theme-independent by design (see
+     :root). Only the heading colour flips: on graphite, ink-blue text would
+     sink into the card, so display type reverts to the plain foreground. */
+  --heading: var(--foreground);
+
   --secondary: oklch(0.27 0.009 250);
   --secondary-foreground: oklch(0.95 0.004 250);
   --muted: oklch(0.27 0.009 250);
@@ -150,13 +185,13 @@
   --chart-4: oklch(0.76 0.13 90);
   --chart-5: oklch(0.66 0.1 300);
 
-  --sidebar: oklch(0.21 0.009 250);
-  --sidebar-foreground: var(--foreground);
+  --sidebar: var(--ink);
+  --sidebar-foreground: var(--ink-foreground);
   --sidebar-primary: var(--tape-500);
   --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: oklch(0.29 0.011 250);
-  --sidebar-accent-foreground: oklch(0.96 0.004 250);
-  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-accent: oklch(1 0 0 / 10%);
+  --sidebar-accent-foreground: var(--ink-foreground);
+  --sidebar-border: var(--ink-border);
   --sidebar-ring: var(--tape-500);
 }
 
@@ -185,6 +220,15 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-info: var(--info);
+
+  --color-heading: var(--heading);
+
+  --color-ink: var(--ink);
+  --color-ink-foreground: var(--ink-foreground);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-subtle: var(--ink-subtle);
+  --color-ink-border: var(--ink-border);
+  --color-ink-destructive: var(--ink-destructive);
 
   --color-tape: var(--tape-500);
   --color-tape-strong: var(--tape-600);

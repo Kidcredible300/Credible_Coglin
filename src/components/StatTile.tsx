@@ -21,7 +21,7 @@ export function StatTile({
     <div className="bg-card border-border rounded-lg border p-4">
       <div
         className={cn(
-          'tabular u-display font-mono text-2xl leading-none md:text-3xl',
+          'tabular u-display text-heading font-mono text-2xl leading-none md:text-3xl',
           tone === 'alert' && 'text-destructive',
         )}
       >

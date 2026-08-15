@@ -31,10 +31,12 @@ export function AppShell() {
         Skip to content
       </a>
 
-      {/* ---------- Desktop sidebar ---------- */}
-      <aside className="bg-sidebar border-sidebar-border hidden w-60 shrink-0 flex-col border-r md:sticky md:top-0 md:flex md:h-dvh">
+      {/* ---------- Desktop sidebar ----------
+          The ink slab. No right border: the surface change already draws the
+          edge, and a hairline on top of it is a seam for its own sake. */}
+      <aside className="bg-ink text-ink-foreground hidden w-60 shrink-0 flex-col md:sticky md:top-0 md:flex md:h-dvh">
         <TeamMark />
-        <nav className="flex-1 overflow-y-auto px-2 py-1" aria-label="Main">
+        <nav className="flex-1 overflow-y-auto px-2 py-1.5" aria-label="Main">
           <ul className="space-y-0.5">
             {NAV.map((item) => (
               <li key={item.to}>
@@ -43,10 +45,7 @@ export function AppShell() {
             ))}
           </ul>
         </nav>
-        <div className="border-sidebar-border flex items-center justify-between border-t px-3 py-3">
-          <span className="u-eyebrow">Theme</span>
-          <ThemeToggle />
-        </div>
+        <SidebarFoot />
       </aside>
 
       {/* ---------- Mobile top bar ---------- */}
@@ -68,10 +67,14 @@ export function AppShell() {
           >
             <Menu className="size-5" aria-hidden />
           </SheetTrigger>
-          <SheetContent side="right" className="w-72 p-0">
+          {/* Same slab on a phone — the nav is the nav wherever it is drawn. */}
+          <SheetContent
+            side="right"
+            className="bg-ink text-ink-foreground flex w-72 flex-col p-0"
+          >
             <SheetTitle className="sr-only">Navigation</SheetTitle>
             <TeamMark />
-            <nav className="px-2 py-1" aria-label="All sections">
+            <nav className="flex-1 overflow-y-auto px-2 py-1.5" aria-label="All sections">
               <ul className="space-y-0.5">
                 {NAV.map((item) => (
                   <li key={item.to}>
@@ -80,10 +83,7 @@ export function AppShell() {
                 ))}
               </ul>
             </nav>
-            <div className="border-border mt-2 flex items-center justify-between border-t px-3 py-3">
-              <span className="u-eyebrow">Theme</span>
-              <ThemeToggle />
-            </div>
+            <SidebarFoot />
           </SheetContent>
         </Sheet>
       </div>
@@ -137,16 +137,49 @@ export function AppShell() {
  */
 function TeamMark() {
   return (
-    <div className="border-sidebar-border flex items-center gap-3 border-b px-4 py-4">
-      <span className="u-tape h-9 w-1.5 shrink-0" aria-hidden />
+    <div className="border-ink-border flex items-center gap-3 border-b px-4 py-4">
+      {/* Slot for the team's own logo, which teams put on everything —
+          shirts, pit banner, the robot. There is no column for it yet
+          (COG-0xx, Settings), so it holds a tape mark at the right size
+          rather than a broken image or a grey void. */}
+      <span
+        className="bg-ink-foreground/10 flex size-9 shrink-0 items-center justify-center rounded-md"
+        title="Team logo — set in Settings"
+        aria-hidden
+      >
+        <span className="u-tape h-4 w-[3px]" />
+      </span>
       <div className="min-w-0">
         <div className="tabular font-mono text-lg leading-none font-bold">
           {team.team_number}
         </div>
-        <div className="text-muted-foreground mt-1 truncate text-xs">
-          {team.name}
-        </div>
+        <div className="text-ink-muted mt-1 truncate text-xs">{team.name}</div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Product mark and theme control, pinned to the bottom of the slab.
+ *
+ * The logo art is dark-on-white, so it is inverted and screened onto the ink
+ * rather than shipped as a second file: one asset, and it stays correct if the
+ * slab colour is ever retuned.
+ */
+function SidebarFoot() {
+  return (
+    <div className="border-ink-border flex items-center justify-between border-t px-3 py-3">
+      <img
+        src="/coglin-logo.svg"
+        alt="Coglin"
+        // One arbitrary filter, not `invert hue-rotate-180`: Tailwind emits
+        // filter functions in a canonical order, and here the order is the
+        // effect — invert first turns the navy artwork light and the white
+        // plate black, then the hue rotation puts the blue back. Screen drops
+        // the now-black plate onto the slab.
+        className="[filter:invert(1)_hue-rotate(180deg)] block h-11 mix-blend-screen"
+      />
+      <ThemeToggle />
     </div>
   );
 }
@@ -168,8 +201,8 @@ function SideLink({
         cn(
           'focus-visible:ring-ring relative flex min-h-11 items-center gap-3 rounded-md pr-3 pl-4 text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none',
           isActive
-            ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-            : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground',
+            ? 'bg-ink-foreground/10 text-ink-foreground font-medium'
+            : 'text-ink-muted hover:bg-ink-foreground/6 hover:text-ink-foreground',
         )
       }
     >
@@ -185,7 +218,7 @@ function SideLink({
           <Icon className="size-4 shrink-0" aria-hidden />
           <span className="truncate">{label}</span>
           {stub && (
-            <span className="u-eyebrow ml-auto text-[10px] normal-case">
+            <span className="u-eyebrow text-ink-subtle ml-auto text-[10px] normal-case">
               soon
             </span>
           )}
