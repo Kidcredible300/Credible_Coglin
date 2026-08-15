@@ -1,0 +1,126 @@
+import * as api from '@/lib/api';
+import { useAsync } from '@/lib/useAsync';
+import { initials } from '@/lib/format';
+import { PageHeader } from '@/components/PageHeader';
+import { Skeleton } from '@/components/Skeleton';
+import { SUB_TEAMS, type Member, type Role } from '@/types';
+import { cn } from '@/lib/utils';
+
+const ROLE_LABEL: Record<Role, string> = {
+  coach: 'Coach',
+  mentor: 'Mentor',
+  student: 'Student',
+  viewer: 'Viewer',
+};
+
+export default function Roster() {
+  const members = useAsync(api.listMembers);
+  const list = members.data ?? [];
+  const students = list.filter((m) => m.role === 'student');
+  const adults = list.filter((m) => m.role !== 'student');
+
+  return (
+    <>
+      <PageHeader eyebrow="2026-27" title="Roster" />
+
+      <div className="space-y-8 px-4 py-6 md:px-8">
+        <div className="grid grid-cols-2 gap-3 sm:max-w-md">
+          <Count
+            n={students.length}
+            label="Students"
+            hint={`${15 - students.length} slots left of 15`}
+          />
+          <Count n={adults.length} label="Coaches & mentors" />
+        </div>
+
+        {members.status === 'loading' && <Skeleton className="h-48" />}
+
+        {adults.length > 0 && (
+          <section>
+            <h2 className="u-eyebrow mb-3">Coaches & mentors</h2>
+            <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {adults.map((m) => (
+                <MemberRow key={m.id} member={m} />
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {/* Grouped by sub-team, because that is how a coach actually thinks
+            about the roster — who is on build tonight, not an alphabetical
+            list of everyone. Students appear under each sub-team they serve. */}
+        {SUB_TEAMS.map((st) => {
+          const group = students.filter((m) => m.sub_teams.includes(st.id));
+          if (group.length === 0) return null;
+          return (
+            <section key={st.id}>
+              <h2 className="u-eyebrow mb-3">
+                {st.label}{' '}
+                <span className="tabular font-mono">{group.length}</span>
+              </h2>
+              <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {group.map((m) => (
+                  <MemberRow key={m.id} member={m} />
+                ))}
+              </ul>
+            </section>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function Count({
+  n,
+  label,
+  hint,
+}: {
+  n: number;
+  label: string;
+  hint?: string;
+}) {
+  return (
+    <div className="bg-card border-border rounded-lg border p-4">
+      <div className="tabular u-display font-mono text-2xl leading-none">
+        {n}
+      </div>
+      <div className="u-eyebrow mt-2">{label}</div>
+      {hint && <div className="text-muted-foreground mt-1 text-xs">{hint}</div>}
+    </div>
+  );
+}
+
+function MemberRow({ member }: { member: Member }) {
+  return (
+    <li className="bg-card border-border flex items-center gap-3 rounded-lg border px-3 py-2.5">
+      <span className="bg-muted text-muted-foreground inline-flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-medium">
+        {initials(member.display_name)}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium">
+          {member.display_name}
+        </div>
+        <div className="text-muted-foreground truncate text-xs">
+          {/* Students are provisioned by the coach and have a handle instead of
+              an email — the COPPA model (plan §6) is visible right here. */}
+          {member.handle ? (
+            <span className="font-mono">@{member.handle}</span>
+          ) : (
+            ROLE_LABEL[member.role]
+          )}
+        </div>
+      </div>
+      <span
+        className={cn(
+          'shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-medium',
+          member.role === 'coach' && 'bg-primary text-primary-foreground',
+          member.role === 'mentor' && 'bg-accent text-accent-foreground',
+          member.role === 'student' && 'text-muted-foreground',
+        )}
+      >
+        {ROLE_LABEL[member.role]}
+      </span>
+    </li>
+  );
+}

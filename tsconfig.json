@@ -1,5 +1,11 @@
 {
   "files": [],
+  // Solution-style config: the build reads the referenced projects, but the
+  // shadcn CLI reads this file for the path alias, so it must live in both.
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": { "@/*": ["./src/*"] }
+  },
   "references": [
     { "path": "./tsconfig.app.json" },
     { "path": "./tsconfig.node.json" },

@@ -1,19 +1,280 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
 
-@theme {
-  /* Placeholder palette — field-tape orange / alliance blue per the product
-     plan §4. The real brand skin lands with COG-020 once the mark exists. */
-  --color-tape: #ff6b1a;
-  --color-alliance: #1d4ed8;
-  --color-goblin: #4ade80;
+/* One superfamily, two roles. Archivo carries a real width axis (62–125%), so
+   hierarchy is expressed by WIDTH as much as weight — headings are expanded and
+   heavy like shop signage and pit banners, body text sits at normal width.
+   JetBrains Mono is reserved for numbers, because in FTC the team number IS the
+   identity ("Team 14584") and the rollups judges care about are all figures.
+   Self-hosted, not Google Fonts: competition pits have famously bad wifi, and
+   the Worker serves these from its own immutable-cached assets. */
+@import '@fontsource-variable/archivo';
+@import '@fontsource-variable/jetbrains-mono';
+
+/* Theme is an attribute on <html>, set pre-paint by the inline script in
+   index.html and owned by src/lib/theme.ts. Overrides Tailwind's default
+   prefers-color-scheme behaviour so the user's explicit choice wins. */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* ---------------------------------------------------------------------------
+   COGLIN PALETTE
+
+   Derived from the subject's own world rather than a generic SaaS ramp: the
+   orange of field tape marking the competition floor, the blue of the alliance
+   you are assigned to, and the cool grey of aluminium extrusion and shop
+   concrete. Deliberately NOT warm cream — this is a workshop, not a library.
+
+   The load-bearing decision: text on the orange is near-BLACK, not white.
+   That is how real hazard and gaffer tape reads, and it also clears WCAG AA,
+   which white-on-orange at this saturation does not.
+
+   COG-020 (the brand skin, blocked on the trademark search) is an edit to this
+   block and nothing else. No component may contain a raw hex.
+--------------------------------------------------------------------------- */
+
+:root {
+  /* Primitives */
+  --tape-400: oklch(0.78 0.16 55);
+  --tape-500: oklch(0.7 0.19 47); /* field-tape orange, the primary */
+  --tape-600: oklch(0.61 0.19 42);
+  --alliance-500: oklch(0.53 0.19 258); /* alliance blue */
+  --alliance-600: oklch(0.45 0.18 258);
+  --goblin-500: oklch(0.72 0.17 152); /* reserved: "ready" */
+  --red-alliance: oklch(0.58 0.22 27); /* doubles as destructive */
+
+  /* Semantic — shadcn's own names, so every primitive is on-brand for free */
+  --background: oklch(0.985 0.002 250);
+  --foreground: oklch(0.19 0.01 250);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --popover: oklch(1 0 0);
+  --popover-foreground: var(--foreground);
+
+  --primary: var(--tape-500);
+  --primary-foreground: oklch(0.17 0.01 60);
+  /* Tape is vivid enough to carry black text on a fill, but too light to BE
+     text on a light background (2.7:1). This is the same hue taken down to a
+     legible ink for icons, links and rules. Keep both — darkening --primary
+     itself would dull the fills, which are the brand. */
+  --primary-ink: oklch(0.52 0.18 40);
+
+  --secondary: oklch(0.955 0.004 250);
+  --secondary-foreground: oklch(0.28 0.012 250);
+  --muted: oklch(0.955 0.004 250);
+  --muted-foreground: oklch(0.49 0.012 250);
+  --accent: oklch(0.94 0.008 250);
+  --accent-foreground: oklch(0.24 0.012 250);
+
+  --destructive: var(--red-alliance);
+  --border: oklch(0.9 0.006 250);
+  --input: oklch(0.9 0.006 250);
+  --ring: var(--tape-500);
+
+  --info: var(--alliance-500);
+
+  /* Evidence readiness. This is the product's signature scale — it appears on
+     the award tracker, the portfolio planner and the dashboard, so it gets
+     real tokens rather than ad-hoc greens. */
+  --readiness-none: oklch(0.88 0.005 250);
+  --readiness-partial: var(--tape-500);
+  --readiness-ready: var(--goblin-500);
+
+  --chart-1: var(--tape-500);
+  --chart-2: var(--alliance-500);
+  --chart-3: var(--goblin-500);
+  --chart-4: oklch(0.7 0.13 90);
+  --chart-5: oklch(0.55 0.1 300);
+
+  --sidebar: oklch(0.965 0.003 250);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--tape-500);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: oklch(0.93 0.008 250);
+  --sidebar-accent-foreground: oklch(0.24 0.012 250);
+  --sidebar-border: oklch(0.9 0.006 250);
+  --sidebar-ring: var(--tape-500);
+
+  /* Slightly tighter than shadcn's 0.625rem default: the register is machined
+     hardware, not soft consumer app. */
+  --radius: 0.4rem;
 }
 
-body {
-  @apply bg-white text-slate-900 antialiased;
+/* Every light token restated, in the same order — the discipline that keeps a
+   light/dark pair honest instead of half-migrated. Shop at night: the surfaces
+   go to cool graphite, the tape stays hot, the alliance blue lifts so it does
+   not sink into the background. */
+[data-theme='dark'] {
+  --tape-400: oklch(0.82 0.15 58);
+  --tape-500: oklch(0.74 0.18 50);
+  --tape-600: oklch(0.66 0.19 45);
+  --alliance-500: oklch(0.68 0.16 258);
+  --alliance-600: oklch(0.58 0.17 258);
+  --goblin-500: oklch(0.76 0.16 152);
+  --red-alliance: oklch(0.65 0.2 25);
+
+  --background: oklch(0.18 0.008 250);
+  --foreground: oklch(0.95 0.004 250);
+  --card: oklch(0.22 0.009 250);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.24 0.009 250);
+  --popover-foreground: var(--foreground);
+
+  --primary: var(--tape-500);
+  --primary-foreground: oklch(0.17 0.01 60);
+  /* On graphite the tape is already legible as text (≈7:1), so ink and fill
+     converge here. */
+  --primary-ink: var(--tape-500);
+
+  --secondary: oklch(0.27 0.009 250);
+  --secondary-foreground: oklch(0.95 0.004 250);
+  --muted: oklch(0.27 0.009 250);
+  --muted-foreground: oklch(0.72 0.011 250);
+  --accent: oklch(0.31 0.011 250);
+  --accent-foreground: oklch(0.96 0.004 250);
+
+  --destructive: var(--red-alliance);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: var(--tape-500);
+
+  --info: var(--alliance-500);
+
+  --readiness-none: oklch(0.34 0.01 250);
+  --readiness-partial: var(--tape-500);
+  --readiness-ready: var(--goblin-500);
+
+  --chart-1: var(--tape-500);
+  --chart-2: var(--alliance-500);
+  --chart-3: var(--goblin-500);
+  --chart-4: oklch(0.76 0.13 90);
+  --chart-5: oklch(0.66 0.1 300);
+
+  --sidebar: oklch(0.21 0.009 250);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--tape-500);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: oklch(0.29 0.011 250);
+  --sidebar-accent-foreground: oklch(0.96 0.004 250);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: var(--tape-500);
 }
 
-@media (prefers-color-scheme: dark) {
+@theme inline {
+  --font-sans: 'Archivo Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-heading: 'Archivo Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-ink: var(--primary-ink);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-info: var(--info);
+
+  --color-tape: var(--tape-500);
+  --color-tape-strong: var(--tape-600);
+  --color-alliance: var(--alliance-500);
+  --color-goblin: var(--goblin-500);
+
+  --color-readiness-none: var(--readiness-none);
+  --color-readiness-partial: var(--readiness-partial);
+  --color-readiness-ready: var(--readiness-ready);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
   body {
-    @apply bg-slate-950 text-slate-100;
+    @apply bg-background text-foreground antialiased;
+  }
+
+  /* Numbers are data here — hours, people reached, team numbers, match counts.
+     Lock them to tabular so columns of figures line up. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* Display type: expanded and heavy, the way equipment labels and pit banners
+     are set. The width axis is doing the work that a second family usually
+     would. */
+  .u-display {
+    font-family: var(--font-heading);
+    font-stretch: 118%;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+  }
+
+  /* Section eyebrow. Semi-expanded, tracked out, small — reads as a stencilled
+     label rather than a heading. */
+  .u-eyebrow {
+    font-stretch: 112%;
+    font-weight: 600;
+    font-size: 0.6875rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    @apply text-muted-foreground;
+  }
+
+  /* The structural device: field tape. A solid chunky bar marks things —
+     the active nav item, the edge of a section header. Never a hairline,
+     never decorative. */
+  .u-tape {
+    @apply bg-primary;
+    border-radius: 1px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

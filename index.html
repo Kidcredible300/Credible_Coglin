@@ -8,6 +8,20 @@
       name="description"
       content="Season operations for FIRST Tech Challenge teams."
     />
+    <!-- Applies the stored theme BEFORE first paint, so there is no flash of
+         the wrong theme. Must stay inline and must stay ahead of the bundle.
+         Mirrors THEME_BOOT_SCRIPT in src/lib/theme.ts — edit both together. -->
+    <script>
+      try {
+        var t = localStorage.getItem('coglin.theme');
+        var dark =
+          t === 'dark' ||
+          (t !== 'light' &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.dataset.theme = 'dark';
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
