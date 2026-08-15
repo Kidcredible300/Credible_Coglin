@@ -128,7 +128,10 @@ export default function Boards() {
       </div>
 
       <div className="px-4 py-6 md:px-8">
-        {allTasks.status === 'loading' ? (
+        {/* boardId is null for a beat after the boards resolve. Without it in
+            this condition the screen flashes "no tasks on this board" before
+            the first board is selected. */}
+        {allTasks.status === 'loading' || boardId === null ? (
           <div className="grid gap-3 md:grid-cols-4">
             {TASK_COLUMNS.map((c) => (
               <Skeleton key={c.id} className="h-64" />
