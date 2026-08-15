@@ -1,0 +1,41 @@
+{
+  "name": "coglin",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Season operations for FIRST Tech Challenge teams",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b",
+    "test": "vitest run --passWithNoTests",
+    "cf-typegen": "wrangler types",
+    "deploy:staging": "CLOUDFLARE_ENV=staging npm run build && CLOUDFLARE_ENV=staging wrangler deploy",
+    "deploy:production": "CLOUDFLARE_ENV=production npm run build && CLOUDFLARE_ENV=production wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply coglin-staging --local",
+    "db:migrate:staging": "wrangler d1 migrations apply coglin-staging --remote",
+    "db:migrate:production": "wrangler d1 migrations apply coglin-prod --remote"
+  },
+  "dependencies": {
+    "hono": "^4.6.14",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router": "^7.1.1"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.0.0",
+    "@cloudflare/vitest-pool-workers": "^0.21.3",
+    "@cloudflare/workers-types": "^5.20260815.1",
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.123.0"
+  }
+}

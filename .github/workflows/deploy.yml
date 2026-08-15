@@ -1,0 +1,122 @@
+# Deploy pipeline.
+#
+# The asymmetry between the two jobs is the point: staging is automatic,
+# production is deliberate. Production hosts a real FIRST team's season data
+# from day one (COG-035) and must never be updated as a side effect of a push.
+#
+# Required repository secrets:
+#   CLOUDFLARE_API_TOKEN  — scoped token, NOT an OAuth login. Needs:
+#                           Workers Scripts:Edit, D1:Edit, R2 Storage:Edit,
+#                           Workers Routes:Edit, Account Settings:Read
+#   CLOUDFLARE_ACCOUNT_ID — e3fb1e77eb5acb3adc8bba285f84f7bb
+#
+# Production additionally requires a GitHub Environment named "production"
+# with a required-reviewer protection rule, so the deploy waits on a click.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Deploy target
+        required: true
+        default: production
+        type: choice
+        options: [production]
+
+permissions:
+  contents: read
+
+jobs:
+  staging:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+
+      # CLOUDFLARE_ENV must be set at BUILD time: the Cloudflare Vite plugin
+      # emits a "redirected deploy config" flattened to the active environment,
+      # and `wrangler deploy` reads that rather than wrangler.jsonc. A bare
+      # `--env` at deploy time silently deploys the wrong worker.
+      - name: Build (staging)
+        run: npm run build
+        env:
+          CLOUDFLARE_ENV: staging
+
+      - name: Apply migrations (staging)
+        run: npx wrangler d1 migrations apply coglin-staging --remote
+
+      - name: Deploy (staging)
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_ENV: staging
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5; do
+            code=$(curl -sS -o /tmp/health.json -w '%{http_code}' \
+              https://coglin-staging.lilithforge.com/api/health || echo 000)
+            if [ "$code" = "200" ]; then
+              cat /tmp/health.json
+              exit 0
+            fi
+            echo "attempt $i: HTTP $code, retrying in 10s"
+            sleep 10
+          done
+          echo "health check failed"; cat /tmp/health.json || true; exit 1
+
+  production:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: production # protection rule gates this on an explicit approval
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+
+      - name: Build (production)
+        run: npm run build
+        env:
+          CLOUDFLARE_ENV: production
+
+      - name: Apply migrations (production)
+        run: npx wrangler d1 migrations apply coglin-prod --remote
+
+      - name: Deploy (production)
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_ENV: production
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5; do
+            code=$(curl -sS -o /tmp/health.json -w '%{http_code}' \
+              https://coglin.lilithforge.com/api/health || echo 000)
+            if [ "$code" = "200" ]; then
+              cat /tmp/health.json
+              exit 0
+            fi
+            echo "attempt $i: HTTP $code, retrying in 10s"
+            sleep 10
+          done
+          echo "health check failed"; cat /tmp/health.json || true; exit 1

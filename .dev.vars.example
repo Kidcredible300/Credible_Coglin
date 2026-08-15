@@ -1,0 +1,11 @@
+# Copy to .dev.vars (gitignored) for local development.
+# Production/staging values are set with:
+#   wrangler secret put <NAME> --env <staging|production>
+
+# Extra entropy mixed into session token hashing. Generate with:
+#   openssl rand -hex 32
+SESSION_PEPPER=
+
+# Phase 5 (COG-023) — not needed for the alpha.
+# STRIPE_SECRET_KEY=
+# STRIPE_WEBHOOK_SECRET=

@@ -1,0 +1,97 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+
+  // Top level is LOCAL DEV ONLY. Both real targets live under `env` below, and
+  // every deploy script passes --env explicitly. The top-level name is
+  // deliberately "-dev" so an accidental bare `wrangler deploy` creates a
+  // throwaway worker instead of overwriting the alpha team's production.
+  "name": "coglin-app-dev",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // "Static assets" here means the compiled React bundle only. All app data is
+  // fetched at runtime from D1/R2 through the Worker routes listed in
+  // run_worker_first. not_found_handling makes deep links (/board/build) return
+  // the SPA shell instead of a 404.
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/media/*"]
+  },
+
+  "observability": { "enabled": true },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "coglin-staging",
+      "database_id": "6d52e5f0-8c42-43c7-b80f-98ccde117ad9",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "coglin-media-staging" }],
+
+  "env": {
+    "staging": {
+      "name": "coglin-app-staging",
+      "compatibility_date": "2026-08-15",
+      "compatibility_flags": ["nodejs_compat"],
+      "assets": {
+        "not_found_handling": "single-page-application",
+        "binding": "ASSETS",
+        "run_worker_first": ["/api/*", "/media/*"]
+      },
+      "observability": { "enabled": true },
+      "vars": { "ENVIRONMENT": "staging" },
+      // Flat, single-level subdomain on purpose. Cloudflare Universal SSL
+      // covers *.lilithforge.com but NOT two-level names like
+      // staging.coglin.lilithforge.com — those need paid Advanced Certificate
+      // Manager, and without it the hostname resolves but fails TLS handshake.
+      "routes": [
+        {
+          "pattern": "coglin-staging.lilithforge.com",
+          "custom_domain": true
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "coglin-staging",
+          "database_id": "6d52e5f0-8c42-43c7-b80f-98ccde117ad9",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [
+        { "binding": "MEDIA", "bucket_name": "coglin-media-staging" }
+      ]
+    },
+
+    "production": {
+      "name": "coglin-app",
+      "compatibility_date": "2026-08-15",
+      "compatibility_flags": ["nodejs_compat"],
+      "assets": {
+        "not_found_handling": "single-page-application",
+        "binding": "ASSETS",
+        "run_worker_first": ["/api/*", "/media/*"]
+      },
+      "observability": { "enabled": true },
+      "vars": { "ENVIRONMENT": "production" },
+      "routes": [
+        { "pattern": "coglin.lilithforge.com", "custom_domain": true }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "coglin-prod",
+          "database_id": "da6589e9-8a14-491f-aad2-adceaea1921b",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "coglin-media-prod" }]
+      // Nightly D1 backup -> R2 lands here in Phase 2 (COG-040):
+      // "triggers": { "crons": ["0 7 * * *"] }
+    }
+  }
+}
