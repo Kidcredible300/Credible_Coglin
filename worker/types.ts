@@ -9,7 +9,6 @@ export type Bindings = {
   DB: D1Database;
   MEDIA: R2Bucket;
   ASSETS: Fetcher;
-  EMAIL: SendEmail;
   ENVIRONMENT?: string;
   /** Extra entropy for session token hashing. Set as a secret per environment. */
   SESSION_PEPPER?: string;
@@ -21,4 +20,10 @@ export type Bindings = {
   ALPHA_SIGNUP_CODE?: string;
   /** Absolute base URL used to build invite links in outgoing mail. */
   APP_BASE_URL?: string;
+  /**
+   * Resend API key for invite mail. Optional on purpose: unset means invites
+   * are still created and the coach gets a copyable link, which is the right
+   * behaviour in local dev and a survivable one in production.
+   */
+  RESEND_API_KEY?: string;
 };

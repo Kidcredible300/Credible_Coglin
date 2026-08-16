@@ -1,24 +1,50 @@
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
-import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import worker from '../index';
 import { currentSeason } from './auth';
 
 const ORIGIN = 'http://coglin.test';
 
 /**
- * Email Sending has no local emulator, and these tests must not depend on the
- * network. Replacing the binding keeps the invite flow exercised end to end
- * while the actual send is a no-op — which also lets a test assert that a
- * failed send still produces a usable invite.
+ * Invite mail goes to Resend over plain fetch, so the seam these tests hold is
+ * `globalThis.fetch` rather than a binding. Nothing here may touch the network:
+ * a test suite that emails real people when it runs is a trap waiting for
+ * whoever runs it next.
+ *
+ * `resendMode` covers the three outcomes that actually differ in behaviour —
+ * accepted, rejected with an HTTP error, and a transport failure.
  */
-let emailFails = false;
+type ResendMode = 'ok' | 'http-error' | 'network-error';
+let resendMode: ResendMode = 'ok';
+let resendCalls: { url: string; body: Record<string, unknown> }[] = [];
+
 beforeAll(() => {
-  (env as unknown as { EMAIL: unknown }).EMAIL = {
-    send: vi.fn(async () => {
-      if (emailFails) throw new Error('simulated provider failure');
-      return { messageId: 'test' };
-    }),
-  };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (!url.startsWith('https://api.resend.com')) {
+      return realFetch(input as RequestInfo, init);
+    }
+    resendCalls.push({
+      url,
+      body: JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>,
+    });
+    if (resendMode === 'network-error') throw new Error('simulated socket failure');
+    if (resendMode === 'http-error') {
+      // Shaped like a real Resend rejection, which echoes the address back —
+      // the reason the failure path must never log a response body.
+      return new Response(
+        JSON.stringify({ statusCode: 422, message: 'Invalid `to` field' }),
+        { status: 422 },
+      );
+    }
+    return new Response(JSON.stringify({ id: 'test-message-id' }), { status: 200 });
+  }) as typeof fetch;
+});
+
+beforeEach(() => {
+  resendMode = 'ok';
+  resendCalls = [];
 });
 
 async function call(
@@ -261,30 +287,74 @@ describe('invites', () => {
     expect(second.status).toBe(404);
   });
 
+  it('sends through Resend as admin@lilithforge.com', async () => {
+    const cookie = await signUpCoach(2006);
+    await call('/api/invites', {
+      method: 'POST',
+      cookie,
+      body: JSON.stringify({
+        email: 'parent@example.com',
+        display_name: 'Grace H.',
+        role: 'student',
+      }),
+    });
+
+    expect(resendCalls).toHaveLength(1);
+    const { url, body } = resendCalls[0];
+    expect(url).toBe('https://api.resend.com/emails');
+    expect(body.from).toBe('Coglin <admin@lilithforge.com>');
+    expect(body.to).toEqual(['parent@example.com']);
+    expect(String(body.subject)).toBe(
+      'Coach 2006 has invited you to join 2006 Team 2006',
+    );
+    // Both parts, so the invite is readable in a plain-text client — plenty of
+    // school mail setups strip HTML.
+    expect(body.html).toContain('/invite/');
+    expect(body.text).toContain('/invite/');
+  });
+
+  it('reports sent:false when Resend rejects the request', async () => {
+    // The specific way a fetch-based sender goes wrong: fetch resolves happily
+    // on a 422, so without an explicit response.ok check the coach would be
+    // told the mail is on its way when Resend refused it.
+    const cookie = await signUpCoach(2007);
+    resendMode = 'http-error';
+
+    const created = await call('/api/invites', {
+      method: 'POST',
+      cookie,
+      body: JSON.stringify({
+        email: 'rejected@example.com',
+        display_name: 'Rejected',
+        role: 'student',
+      }),
+    });
+
+    expect(created.status).toBe(201);
+    expect(((await created.json()) as { sent: boolean }).sent).toBe(false);
+  });
+
   it('still returns a usable link when the mail fails to send', async () => {
     const cookie = await signUpCoach(2003);
-    emailFails = true;
-    try {
-      const created = await call('/api/invites', {
-        method: 'POST',
-        cookie,
-        body: JSON.stringify({
-          email: 'bounces@example.com',
-          display_name: 'Bounce',
-          role: 'student',
-        }),
-      });
-      expect(created.status).toBe(201);
-      const body = (await created.json()) as { sent: boolean; url: string };
-      expect(body.sent).toBe(false);
+    resendMode = 'network-error';
 
-      // The coach's copyable link is the fallback for a bounced invite, so it
-      // has to work even on the failure path.
-      const preview = await call(`/api/invites/${body.url.split('/invite/')[1]}`);
-      expect(preview.status).toBe(200);
-    } finally {
-      emailFails = false;
-    }
+    const created = await call('/api/invites', {
+      method: 'POST',
+      cookie,
+      body: JSON.stringify({
+        email: 'bounces@example.com',
+        display_name: 'Bounce',
+        role: 'student',
+      }),
+    });
+    expect(created.status).toBe(201);
+    const body = (await created.json()) as { sent: boolean; url: string };
+    expect(body.sent).toBe(false);
+
+    // The coach's copyable link is the fallback for a bounced invite, so it
+    // has to work even on the failure path.
+    const preview = await call(`/api/invites/${body.url.split('/invite/')[1]}`);
+    expect(preview.status).toBe(200);
   });
 
   it('refuses to mint a coach via an invite link', async () => {

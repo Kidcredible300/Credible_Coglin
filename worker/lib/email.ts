@@ -2,14 +2,32 @@
  * Outbound mail (COG-041, invite slice).
  *
  * One rule governs this file: the recipient address is a parameter and never
- * becomes state. It arrives from the coach's form, goes into `EMAIL.send()`,
- * and goes out of scope. It is not returned, not stored, and not logged —
- * including in the error path, which is the easy place to leak it by reflex.
- * See the header of `migrations/0002_invites.sql` for why.
+ * becomes state. It arrives from the coach's form, goes out over the wire, and
+ * goes out of scope. It is not returned, not stored, and not logged — including
+ * in the error path, which is the easy place to leak it by reflex. See the
+ * header of `migrations/0002_invites.sql` for why.
+ *
+ * Transport is **Resend**, not Cloudflare Email Sending. lilithforge.com has
+ * been sending transactional mail through Resend since the Inkubus work —
+ * `resend._domainkey.lilithforge.com` is live, and website/docs/EMAIL-RUNBOOK.md
+ * documents the split deliberately: Zoho owns the human mailbox at admin@, and
+ * Resend owns app mail, coexisting on separate DKIM selectors. Email Sending
+ * would have meant onboarding a new sending domain and a Workers Paid plan to
+ * obtain a capability this domain already has.
+ *
+ * The API key is shared with Inkubus. Worth knowing when it is next rotated:
+ * rolling it for an Inkubus incident stops Coglin invites at the same moment.
  */
 import type { Bindings } from '../types';
 
-const FROM = { email: 'admin@lilithforge.com', name: 'Coglin' };
+const ENDPOINT = 'https://api.resend.com/emails';
+
+/**
+ * Resend takes `Name <address>` in one string. Sending as admin@ rather than a
+ * no-reply has a real benefit here: replies land in the Zoho mailbox, so a
+ * parent who hits Reply on their child's invite reaches a person.
+ */
+const FROM = 'Coglin <admin@lilithforge.com>';
 
 export interface InviteMail {
   /** Recipient. Transient — see the file header. */
@@ -101,14 +119,34 @@ export async function sendInvite(
   env: Bindings,
   mail: InviteMail,
 ): Promise<boolean> {
+  // No key configured is a normal state in local dev, not an error. The invite
+  // still exists and the dialog still shows a working link.
+  if (!env.RESEND_API_KEY) return false;
+
   const { subject, html, text } = render(mail);
+
   try {
-    await env.EMAIL.send({ to: mail.to, from: FROM, subject, html, text });
+    const response = await fetch(ENDPOINT, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ from: FROM, to: [mail.to], subject, html, text }),
+    });
+
+    // fetch does not throw on 4xx/5xx. Without this check every send would
+    // report success, including a rejected address or a revoked key — and the
+    // coach would be told the mail is on its way when nothing was sent.
+    if (!response.ok) {
+      // Status only. Resend's error bodies quote the recipient back, and a log
+      // line is exactly the durable place this address must never reach.
+      console.error(`invite email rejected by Resend: HTTP ${response.status}`);
+      return false;
+    }
     return true;
   } catch (err) {
-    // Log the failure class only. The recipient must not reach the log, and
-    // provider errors quote the address back, so the message is not safe to
-    // print verbatim.
+    // Network-level failure. Same rule — the failure class, never the address.
     console.error(
       'invite email send failed:',
       err instanceof Error ? err.name : 'unknown',

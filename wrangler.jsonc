@@ -32,15 +32,11 @@
   ],
   "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "coglin-media-staging" }],
 
-  // Transactional mail (COG-041).
-  //
-  // Deliberately NOT `remote: true`. Email Sending has no local emulator, so
-  // remote bindings are the only way to really send from `vite dev` — but
-  // vitest reads this same top-level block, and a remote binding makes the test
-  // suite open an authenticated connection to Cloudflare. That would break the
-  // property ci.yml depends on: tests run with no Cloudflare credentials.
-  // Tests stub the binding; real sends are verified on staging.
-  "send_email": [{ "name": "EMAIL" }],
+  // Invite mail goes out over Resend's REST API (see worker/lib/email.ts), so
+  // there is no send_email binding here — just a RESEND_API_KEY secret per
+  // environment. lilithforge.com already sends through Resend for Inkubus;
+  // Cloudflare Email Sending would have meant a new sending domain and a
+  // Workers Paid plan for a capability the domain already has.
 
   "env": {
     "staging": {
@@ -74,8 +70,7 @@
       ],
       "r2_buckets": [
         { "binding": "MEDIA", "bucket_name": "coglin-media-staging" }
-      ],
-      "send_email": [{ "name": "EMAIL" }]
+      ]
     },
 
     "production": {
@@ -101,7 +96,6 @@
         }
       ],
       "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "coglin-media-prod" }],
-      "send_email": [{ "name": "EMAIL" }],
 
       // Nightly D1 -> R2 backup (COG-040). 07:00 UTC is roughly 2-3am Eastern,
       // which is the quietest point for a team that meets on weeknights.

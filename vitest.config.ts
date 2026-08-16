@@ -28,6 +28,10 @@ export default defineConfig({
             SESSION_PEPPER: 'test-pepper',
             ALPHA_SIGNUP_CODE: 'test-signup-code',
             APP_BASE_URL: 'http://coglin.test',
+            // Must be set, or sendInvite short-circuits before the fetch the
+            // invite tests are asserting on. The value is never used: the
+            // tests intercept every api.resend.com request.
+            RESEND_API_KEY: 'test-resend-key',
           },
         },
       };
