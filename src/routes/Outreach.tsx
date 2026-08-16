@@ -2,7 +2,6 @@ import * as api from '@/lib/api';
 import { useAsync } from '@/lib/useAsync';
 import { formatCount, formatHours, formatLongDate } from '@/lib/format';
 import { PageHeader } from '@/components/PageHeader';
-import { SampleDataNotice } from '@/components/SampleDataNotice';
 import { StatTile } from '@/components/StatTile';
 import { EmptyState } from '@/components/EmptyState';
 import { Skeleton } from '@/components/Skeleton';
@@ -19,7 +18,6 @@ export default function Outreach() {
       <PageHeader eyebrow="2026-27" title="Outreach log" />
 
       <div className="px-4 pt-6 md:px-8">
-        <SampleDataNotice feature="The outreach log" />
       </div>
 
       <div className="space-y-8 px-4 py-6 md:px-8">
@@ -42,10 +40,11 @@ export default function Outreach() {
           {outreach.status === 'ready' && list.length === 0 && (
             <EmptyState
               title="No outreach logged yet."
-              aside="Log an event right after it happens — the details you'll want in March are the ones you forget by Friday."
+              aside="Logging arrives with the next release. When it does, log events the same week — the details you'll want in March are the ones you forget by Friday."
             />
           )}
 
+          {list.length > 0 && (
           <ul className="bg-card border-border divide-border divide-y rounded-lg border">
             {list.map((o) => (
               <li key={o.id} className="px-4 py-3.5">
@@ -73,6 +72,7 @@ export default function Outreach() {
               </li>
             ))}
           </ul>
+          )}
         </section>
       </div>
     </>

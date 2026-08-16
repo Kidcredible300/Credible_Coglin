@@ -5,19 +5,31 @@
  * for itself in COG-006: team, season and roster moved from fixtures to real
  * `/api` calls below without a single component changing.
  *
- * The rest are still fixtures. Which is which is not cosmetic — a coach must
- * never mistake demo data for their team's, so anything still mocked is marked
- * `MOCK` here and shown as provisional in the UI.
+ * Features that have not landed yet return **empty**, not sample data. A real
+ * team signing up gets a blank canvas: a dashboard that invents 23 outreach
+ * hours and 655 people reached is worse than one showing zero, because zero is
+ * true and a coach can act on it. A banner saying "sample data" does not fix
+ * that — the numbers still read as theirs at a glance, and the whole product is
+ * asking to be trusted with a season that cannot be reconstructed.
  *
  *   REAL   getTeam, getCurrentSeason, listMembers
- *   MOCK   boards, tasks, outreach, calendar, meetings, award criteria
+ *   EMPTY  boards, tasks, outreach, calendar, meetings, award criteria
+ *
+ * There is no demo-data mode and no `mock/fixtures` import, deliberately. The
+ * first attempt kept the fixtures behind a build-time flag on the assumption
+ * that dead-branch elimination would strip them; it did not. That module builds
+ * its arrays through top-level calls, so Rollup cannot prove it side-effect
+ * free and bundled the sample season anyway — a flag away from a real team's
+ * dashboard. The only version of this that is actually safe is not importing
+ * it. Verify with `npm run build && grep -r "Chesapeake" dist/`.
+ *
+ *   VITE_DEMO_DATA=1 npm run dev
  *
  * Note there is no `team_id` parameter anywhere. The server derives the tenant
  * from the session's membership row (plan §6); a client that can name its own
  * team_id is a tenancy bug waiting to happen, so the shape of this API refuses
  * to offer one.
  */
-import * as fixtures from './mock/fixtures';
 import type {
   AwardCriterion,
   Board,
@@ -37,6 +49,7 @@ const LATENCY_MS = 180;
 function resolve<T>(value: T): Promise<T> {
   return new Promise((r) => setTimeout(() => r(structuredClone(value)), LATENCY_MS));
 }
+
 
 /**
  * Thrown on a 401 so the shell can send the visitor back to the login screen
@@ -130,37 +143,34 @@ export async function createInvite(input: {
 }
 
 // --------------------------------------------------------------------------
-// Everything below still resolves from fixtures. Each becomes a `get()` call
-// as its feature lands (COG-011 boards, COG-014 outreach, COG-013 awards).
+// Not built yet. Each returns nothing until its feature lands (COG-011 boards,
+// COG-014 outreach, COG-013 awards, COG-016 calendar, COG-036 meetings), at
+// which point the body becomes a `get()` call and the screens do not change.
 // --------------------------------------------------------------------------
 
 export function listBoards(): Promise<Board[]> {
-  return resolve(fixtures.boards);
+  return resolve([]);
 }
 
 export function listTasks(boardId?: string): Promise<Task[]> {
-  const all = fixtures.tasks;
+  const all: Task[] = [];
   return resolve(boardId ? all.filter((t) => t.board_id === boardId) : all);
 }
 
 export function listOutreach(): Promise<OutreachEvent[]> {
-  return resolve(
-    [...fixtures.outreach].sort((a, b) => b.occurred_at - a.occurred_at),
-  );
+  return resolve([]);
 }
 
 export function listCalendar(): Promise<CalendarEvent[]> {
-  return resolve(
-    [...fixtures.calendar].sort((a, b) => a.starts_at - b.starts_at),
-  );
+  return resolve([]);
 }
 
 export function listMeetings(): Promise<Meeting[]> {
-  return resolve(fixtures.meetings);
+  return resolve([]);
 }
 
 export function listAwardCriteria(): Promise<AwardCriterion[]> {
-  return resolve(fixtures.awardCriteria);
+  return resolve([]);
 }
 
 /**
@@ -173,7 +183,14 @@ export function mutateBoard(op: BoardOp): Promise<{ ok: true }> {
   return Promise.resolve({ ok: true });
 }
 
-/** Server-authoritative "now" stand-in. Mock data is pinned to a fixed date. */
+/**
+ * Now, in epoch seconds.
+ *
+ * Real time, not the fixtures' pinned date — every "days until" and "overdue"
+ * on screen is derived from this, and a hardcoded 2026 date made a live
+ * dashboard confidently wrong about the season it was in. Demo mode keeps the
+ * dashboard confidently wrong about the season it was in.
+ */
 export function now(): number {
-  return fixtures.MOCK_NOW;
+  return Math.floor(Date.now() / 1000);
 }

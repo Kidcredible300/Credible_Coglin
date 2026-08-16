@@ -14,7 +14,6 @@ import * as api from '@/lib/api';
 import { useAsync } from '@/lib/useAsync';
 import { TASK_COLUMNS, type BoardOp, type Task, type TaskStatus } from '@/types';
 import { PageHeader } from '@/components/PageHeader';
-import { SampleDataNotice } from '@/components/SampleDataNotice';
 import { EmptyState } from '@/components/EmptyState';
 import { Skeleton } from '@/components/Skeleton';
 import { Column } from '@/components/board/Column';
@@ -38,7 +37,12 @@ export default function Boards() {
   }, [allTasks.data]);
 
   useEffect(() => {
-    if (boards.data && boardId === null) setBoardId(boards.data[0].id);
+    // `boards.data?.[0]`, not `boards.data[0]`: a team with no boards is the
+    // normal state for everyone who signs up, and indexing straight into the
+    // empty array threw before the screen could render at all. The fixtures
+    // always had boards, which is precisely why this survived until real data.
+    const first = boards.data?.[0];
+    if (first && boardId === null) setBoardId(first.id);
   }, [boards.data, boardId]);
 
   const sensors = useSensors(
@@ -101,7 +105,6 @@ export default function Boards() {
       <PageHeader eyebrow="Build season" title="Boards" />
 
       <div className="px-4 pt-6 md:px-8">
-        <SampleDataNotice feature="Boards" />
       </div>
 
       {/* Board switcher. Horizontal scroll on narrow screens rather than a
@@ -133,10 +136,19 @@ export default function Boards() {
       </div>
 
       <div className="px-4 py-6 md:px-8">
-        {/* boardId is null for a beat after the boards resolve. Without it in
-            this condition the screen flashes "no tasks on this board" before
-            the first board is selected. */}
-        {allTasks.status === 'loading' || boardId === null ? (
+        {/* A team with no boards leaves boardId null forever, so this case has
+            to come first — otherwise the condition below treats "nothing to
+            select" as "still loading" and the screen shows skeletons that never
+            resolve. */}
+        {boards.status === 'ready' && (boards.data?.length ?? 0) === 0 ? (
+          <EmptyState
+            title="No boards yet."
+            aside="Sub-team boards arrive with the next release. Your roster is already live — start there."
+          />
+        ) : /* boardId is null for a beat after the boards resolve. Without it in
+              this condition the screen flashes "no tasks on this board" before
+              the first board is selected. */
+        allTasks.status === 'loading' || boardId === null ? (
           <div className="grid gap-3 md:grid-cols-4">
             {TASK_COLUMNS.map((c) => (
               <Skeleton key={c.id} className="h-64" />

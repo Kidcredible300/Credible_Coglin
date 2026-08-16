@@ -17,14 +17,17 @@ export interface NavItem {
   icon: LucideIcon;
   /** Primary items get a slot in the mobile tab bar; the rest live in the sheet. */
   primary?: boolean;
-  /** Routed but not yet built — rendered as a stub screen. */
+  /**
+   * Nothing can be created here yet. Marked so the nav says "soon" rather than
+   * letting a coach walk into a screen that only ever shows an empty state.
+   */
   stub?: boolean;
 }
 
 export const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: Home, primary: true },
-  { to: '/boards', label: 'Boards', icon: ClipboardList, primary: true },
-  { to: '/outreach', label: 'Outreach', icon: Megaphone, primary: true },
+  { to: '/boards', label: 'Boards', icon: ClipboardList, primary: true, stub: true },
+  { to: '/outreach', label: 'Outreach', icon: Megaphone, primary: true, stub: true },
   { to: '/roster', label: 'Roster', icon: Users, primary: true },
   { to: '/awards', label: 'Awards', icon: Trophy, stub: true },
   { to: '/portfolio', label: 'Portfolio', icon: FileText, stub: true },

@@ -10,7 +10,6 @@ import {
   relativeDays,
 } from '@/lib/format';
 import { PageHeader } from '@/components/PageHeader';
-import { SampleDataNotice } from '@/components/SampleDataNotice';
 import { SeasonSpine } from '@/components/SeasonSpine';
 import { StatTile } from '@/components/StatTile';
 import { EvidenceMeter } from '@/components/EvidenceMeter';
@@ -52,6 +51,18 @@ export default function Dashboard() {
   const hours = outreach.data?.reduce((s, o) => s + o.hours, 0) ?? 0;
   const people = outreach.data?.reduce((s, o) => s + o.people_reached, 0) ?? 0;
 
+  /**
+   * What the hero says when there is no dated deadline to count down to. The
+   * three cases are genuinely different, and only the last one is off-season.
+   */
+  const heroFallback = !season.data
+    ? ' ' // still loading; the spine below already shows a skeleton
+    : now < season.data.starts_at
+      ? `Season ${season.data.label} starts soon`
+      : now <= season.data.ends_at
+        ? 'No dates on the calendar yet'
+        : 'Off-season';
+
   const byAward = new Map<AwardKey, ReturnType<typeof Array.prototype.slice>>();
   for (const c of criteria.data ?? []) {
     if (!byAward.has(c.award)) byAward.set(c.award, []);
@@ -63,7 +74,6 @@ export default function Dashboard() {
       <PageHeader eyebrow={team.name} title="Dashboard" />
 
       <div className="space-y-8 px-4 py-6 md:px-8">
-        <SampleDataNotice feature="The tiles and award tracking below" />
 
         {/* Hero: how much season is left, and what it is pointed at.
             On the ink slab rather than a card — this is the one fact the page
@@ -80,7 +90,11 @@ export default function Dashboard() {
               </span>
             </div>
           ) : (
-            <div className="u-display text-2xl">Off-season</div>
+            /* No countdown is not the same as no season. This used to say
+               "Off-season" whenever the calendar was empty, which told a team
+               three weeks out from kickoff that their season was over. Say what
+               is actually known instead. */
+            <div className="u-display text-2xl">{heroFallback}</div>
           )}
 
           <div className="mt-6">
@@ -141,6 +155,11 @@ export default function Dashboard() {
                   <Skeleton className="h-4" />
                 </div>
               )}
+              {criteria.status === 'ready' && byAward.size === 0 && (
+                <p className="text-muted-foreground px-4 py-6 text-center text-sm">
+                  Award tracking opens once the 2026-27 criteria are in.
+                </p>
+              )}
               {[...byAward.entries()].map(([award, list]) => (
                 <div
                   key={award}
@@ -167,7 +186,8 @@ export default function Dashboard() {
             <section>
               <h2 className="u-eyebrow mb-3">Next meeting</h2>
               <div className="bg-card border-border rounded-lg border p-4">
-                {meetings.data?.[0] ? (
+                {meetings.status === 'loading' && <Skeleton className="h-16" />}
+                {meetings.data?.[0] && (
                   <>
                     <div className="u-display text-heading text-base">
                       {formatLongDate(meetings.data[0].starts_at)}
@@ -180,8 +200,14 @@ export default function Dashboard() {
                       <p className="mt-3 text-sm">{meetings.data[0].agenda}</p>
                     )}
                   </>
-                ) : (
-                  <Skeleton className="h-16" />
+                )}
+                {/* No meeting is a real answer, not a slow one. The old code
+                    fell back to a skeleton, so an empty team saw a loading bar
+                    that never resolved. */}
+                {meetings.status === 'ready' && !meetings.data?.[0] && (
+                  <p className="text-muted-foreground text-sm">
+                    Nothing scheduled yet.
+                  </p>
                 )}
               </div>
             </section>
