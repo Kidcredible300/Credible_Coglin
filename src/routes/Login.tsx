@@ -7,11 +7,10 @@
  * common case is the one that opens.
  */
 import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { useSessionState } from '@/lib/session';
+import { Field } from '@/components/Field';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function Login() {
@@ -143,24 +142,21 @@ export default function Login() {
           </p>
         )}
 
-        <p className="text-muted-foreground mt-8 text-xs leading-relaxed">
+        <p className="text-muted-foreground mt-8 text-sm leading-relaxed">
+          Setting up a new team?{' '}
+          <Link
+            to="/signup"
+            className="text-foreground underline underline-offset-4"
+          >
+            Create a team
+          </Link>
+        </p>
+
+        <p className="text-muted-foreground mt-3 text-xs leading-relaxed">
           Students get an account from their coach. If you don't have one yet,
           ask them to send you an invite.
         </p>
       </div>
-    </div>
-  );
-}
-
-function Field({
-  name,
-  label,
-  ...props
-}: { name: string; label: string } & React.ComponentProps<typeof Input>) {
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={name}>{label}</Label>
-      <Input id={name} name={name} {...props} />
     </div>
   );
 }

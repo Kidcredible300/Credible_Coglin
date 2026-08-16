@@ -12,6 +12,7 @@ import Placeholder from '@/routes/Placeholder';
 import Debug from '@/routes/Debug';
 import Login from '@/routes/Login';
 import AcceptInvite from '@/routes/AcceptInvite';
+import Signup from '@/routes/Signup';
 
 // The theme is applied pre-paint by the inline script in index.html, so there
 // is deliberately nothing to do here.
@@ -38,6 +39,7 @@ createRoot(document.getElementById('root')!).render(
           {/* Outside the shell: neither has a signed-in user, so neither can
               draw a sidebar with a team in it. */}
           <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
           <Route path="/invite/:token" element={<AcceptInvite />} />
 
           <Route element={<RequireSession />}>
