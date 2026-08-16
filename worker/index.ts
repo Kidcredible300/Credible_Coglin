@@ -3,6 +3,7 @@ import { auth } from './routes/auth';
 import { invites } from './routes/invites';
 import { team } from './routes/team';
 import { meetings } from './routes/meetings';
+import { notes } from './routes/notes';
 import { series } from './routes/series';
 import { scheduled } from './backup';
 import type { AppEnv } from './lib/tenancy';
@@ -64,6 +65,9 @@ app.get('/api/health', async (c) => {
 
 app.route('/api/auth', auth);
 app.route('/api/invites', invites);
+// `notes` is mounted first because it claims the deeper paths under a meeting
+// (/:id/blocks, /:id/agenda); `meetings` owns /:id itself.
+app.route('/api/meetings', notes);
 app.route('/api/meetings', meetings);
 app.route('/api/series', series);
 // Mounted last of the /api routes because `team` declares bare paths ('/team',
