@@ -87,6 +87,15 @@ npm run db:migrate:staging
 npm run db:migrate:production
 ```
 
+Those scripts pass `--env` even though they already name the database, because
+wrangler resolves that name against **the config file, not your account**. Each
+database is only declared inside its own `env` block, so a bare
+`wrangler d1 migrations apply coglin-prod --remote` fails with *"couldn't find a
+D1 DB with the name or binding 'coglin-prod' in your wrangler.jsonc file"* —
+which looks like a credentials problem and is not one. Staging appears to work
+without `--env` only because the top-level block points at `coglin-staging` for
+local dev.
+
 ## Tenancy rule
 
 Every application table carries `team_id`, and `team_id` is **never** read from

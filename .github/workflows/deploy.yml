@@ -69,8 +69,16 @@ jobs:
         env:
           CLOUDFLARE_ENV: staging
 
+      # --env is required even though the database is named explicitly: wrangler
+      # resolves that name against the *config*, not the account, and each
+      # database is only declared inside its own env block. Without it wrangler
+      # reads the top level and reports "couldn't find a D1 DB with the name
+      # coglin-prod in your wrangler.jsonc file" — which reads like a
+      # permissions error and is not one. Staging happens to work either way
+      # because the top-level block points at coglin-staging for local dev; that
+      # is a coincidence, not a reason to leave it implicit.
       - name: Apply migrations (staging)
-        run: npx wrangler d1 migrations apply coglin-staging --remote
+        run: npx wrangler d1 migrations apply coglin-staging --remote --env staging
 
       - name: Deploy (staging)
         run: npx wrangler deploy
@@ -112,8 +120,10 @@ jobs:
         env:
           CLOUDFLARE_ENV: production
 
+      # See the note on the staging job: --env is what makes wrangler look in
+      # the production block, where coglin-prod is actually declared.
       - name: Apply migrations (production)
-        run: npx wrangler d1 migrations apply coglin-prod --remote
+        run: npx wrangler d1 migrations apply coglin-prod --remote --env production
 
       - name: Deploy (production)
         run: npx wrangler deploy
