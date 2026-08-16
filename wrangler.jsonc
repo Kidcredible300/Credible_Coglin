@@ -101,9 +101,13 @@
         }
       ],
       "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "coglin-media-prod" }],
-      "send_email": [{ "name": "EMAIL" }]
-      // Nightly D1 backup -> R2 lands here in Phase 2 (COG-040):
-      // "triggers": { "crons": ["0 7 * * *"] }
+      "send_email": [{ "name": "EMAIL" }],
+
+      // Nightly D1 -> R2 backup (COG-040). 07:00 UTC is roughly 2-3am Eastern,
+      // which is the quietest point for a team that meets on weeknights.
+      // Production only: staging is disposable, and a cron there would just be
+      // a second thing to notice failing.
+      "triggers": { "crons": ["0 7 * * *"] }
     }
   }
 }

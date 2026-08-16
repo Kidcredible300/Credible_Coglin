@@ -15,7 +15,9 @@
     "deploy:production": "CLOUDFLARE_ENV=production npm run build && CLOUDFLARE_ENV=production wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply coglin-staging --local",
     "db:migrate:staging": "wrangler d1 migrations apply coglin-staging --remote",
-    "db:migrate:production": "wrangler d1 migrations apply coglin-prod --remote"
+    "db:migrate:production": "wrangler d1 migrations apply coglin-prod --remote",
+    "backup:fetch:production": "wrangler r2 object get coglin-media-prod/backups/$npm_config_date.json --file backup.json --remote",
+    "db:restore:sql": "node scripts/restore-backup.mjs backup.json --out restore.sql"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

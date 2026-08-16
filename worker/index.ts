@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { auth } from './routes/auth';
 import { invites } from './routes/invites';
 import { team } from './routes/team';
+import { scheduled } from './backup';
 import type { AppEnv } from './lib/tenancy';
 
 const app = new Hono<AppEnv>();
@@ -38,4 +39,9 @@ app.route('/api', team);
 
 app.all('/api/*', (c) => c.json({ error: 'not_found' }, 404));
 
-export default app;
+// Exported as an object rather than the Hono app itself, because the Worker now
+// has a second entry point: the nightly backup cron (COG-040).
+export default {
+  fetch: app.fetch,
+  scheduled,
+};
