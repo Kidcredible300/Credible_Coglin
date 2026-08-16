@@ -2,10 +2,12 @@ import { Hono } from 'hono';
 import { auth } from './routes/auth';
 import { invites } from './routes/invites';
 import { team } from './routes/team';
+import { boards } from './routes/boards';
 import { candidates } from './routes/candidates';
 import { media, mediaFiles } from './routes/media';
 import { meetings } from './routes/meetings';
 import { notes } from './routes/notes';
+import { records } from './routes/records';
 import { series } from './routes/series';
 import { scheduled } from './backup';
 import type { AppEnv } from './lib/tenancy';
@@ -74,6 +76,10 @@ app.route('/api/meetings', meetings);
 app.route('/api/series', series);
 app.route('/api/portfolio', candidates);
 app.route('/api/media', media);
+// Both declare full paths ('/boards', '/meetings/:id/attendance') rather than a
+// prefix, so they mount at /api alongside `team`.
+app.route('/api', boards);
+app.route('/api', records);
 // Mounted last of the /api routes because `team` declares bare paths ('/team',
 // '/members') rather than a prefix, so it would otherwise shadow siblings.
 app.route('/api', team);

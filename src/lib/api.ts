@@ -526,20 +526,102 @@ export function updateCandidate(
   ).then((r) => r.candidate);
 }
 
-// --------------------------------------------------------------------------
-// Not built yet. Each returns nothing until its feature lands (COG-011 boards,
-// COG-014 outreach, COG-013 awards, COG-016 calendar), at which point the body
-// becomes a `get()` call and the screens do not change.
-// --------------------------------------------------------------------------
+// ---------------------------------------------------------- boards and tasks
 
 export function listBoards(): Promise<Board[]> {
-  return resolve([]);
+  return get<{ boards: Board[] }>('/api/boards').then((r) => r.boards);
 }
 
 export function listTasks(boardId?: string): Promise<Task[]> {
-  const all: Task[] = [];
-  return resolve(boardId ? all.filter((t) => t.board_id === boardId) : all);
+  const suffix = boardId ? `?board_id=${encodeURIComponent(boardId)}` : '';
+  return get<{ tasks: Task[] }>(`/api/tasks${suffix}`).then((r) => r.tasks);
 }
+
+export function createBoard(input: { name: string; sub_team?: string | null }): Promise<Board> {
+  return send<{ board: Board }>('/api/boards', 'POST', input).then((r) => r.board);
+}
+
+/** Action items captured in a meeting, once promoted to real board tasks. */
+export function listActionItems(status?: 'open' | 'done' | 'dropped'): Promise<
+  {
+    id: string;
+    meeting_id: string;
+    text: string;
+    assignee_member_id: string | null;
+    due_at: number | null;
+    status: string;
+    task_id: string | null;
+  }[]
+> {
+  const suffix = status ? `?status=${status}` : '';
+  return get<{ action_items: [] }>(`/api/action-items${suffix}`).then(
+    (r) => r.action_items,
+  );
+}
+
+export function createActionItem(
+  meetingId: string,
+  input: {
+    text: string;
+    assignee_member_id?: string | null;
+    due_at?: number | null;
+    block_id?: string;
+  },
+): Promise<{ id: string }> {
+  return send<{ action_item: { id: string } }>(
+    `/api/meetings/${meetingId}/action-items`,
+    'POST',
+    input,
+  ).then((r) => r.action_item);
+}
+
+/** Turn a meeting's action item into a board task. Creates a board if needed. */
+export function promoteActionItem(
+  meetingId: string,
+  actionItemId: string,
+  boardId?: string,
+): Promise<{ task: Task }> {
+  return send(
+    `/api/meetings/${meetingId}/action-items/${actionItemId}/promote`,
+    'POST',
+    { board_id: boardId },
+  );
+}
+
+export function putAttendance(
+  meetingId: string,
+  entries: { member_id: string; state: string | null; minutes?: number; note?: string }[],
+): Promise<{ attendance: unknown[] }> {
+  return send(`/api/meetings/${meetingId}/attendance`, 'PUT', { entries });
+}
+
+/** Check yourself in. The server ignores any member id in the body. */
+export function checkInSelf(
+  meetingId: string,
+  state: 'present' | 'late' = 'present',
+): Promise<{ ok: true; member_id: string }> {
+  return send(`/api/meetings/${meetingId}/attendance/self`, 'POST', { state });
+}
+
+export function attendanceSummary(): Promise<{
+  meetings_held: number;
+  members: {
+    member_id: string;
+    display_name: string;
+    present: number;
+    late: number;
+    excused: number;
+    absent: number;
+  }[];
+}> {
+  return get('/api/attendance/summary');
+}
+
+// --------------------------------------------------------------------------
+// Not built yet. Each returns nothing until its feature lands (COG-014
+// outreach, COG-013 awards, COG-016 calendar), at which point the body becomes
+// a `get()` call and the screens do not change.
+// --------------------------------------------------------------------------
 
 export function listOutreach(): Promise<OutreachEvent[]> {
   return resolve([]);
@@ -554,13 +636,18 @@ export function listAwardCriteria(): Promise<AwardCriterion[]> {
 }
 
 /**
- * Board mutation. Local-only for now, but it takes the same op shape the
- * server will accept at POST /api/boards/:id/mutate, so Phase 1 replaces the
- * body with a fetch and the Durable Object later replays this exact stream.
+ * Board mutation.
+ *
+ * The endpoint this always promised now exists. The op shape is unchanged, so
+ * the Durable Object (COG-009) can still replay this exact stream to a second
+ * viewer later without the write path moving.
+ *
+ * Fire-and-forget with local state already updated, matching how Boards.tsx
+ * applies ops optimistically. A failed op currently just does not persist —
+ * rollback is the thing to add when this screen gets real use.
  */
-export function mutateBoard(op: BoardOp): Promise<{ ok: true }> {
-  void op;
-  return Promise.resolve({ ok: true });
+export function mutateBoard(boardId: string, op: BoardOp): Promise<{ ok: true }> {
+  return send(`/api/boards/${boardId}/mutate`, 'POST', { ops: [op] });
 }
 
 /**

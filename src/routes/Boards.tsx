@@ -12,6 +12,8 @@ import {
 } from '@dnd-kit/core';
 import * as api from '@/lib/api';
 import { useAsync } from '@/lib/useAsync';
+import { useSession } from '@/lib/session';
+import { Button } from '@/components/ui/button';
 import { TASK_COLUMNS, type BoardOp, type Task, type TaskStatus } from '@/types';
 import { PageHeader } from '@/components/PageHeader';
 import { EmptyState } from '@/components/EmptyState';
@@ -21,11 +23,28 @@ import { DraggableTaskCard, TaskCard } from '@/components/board/TaskCard';
 import { TaskDialog } from '@/components/board/TaskDialog';
 import { cn } from '@/lib/utils';
 
+/** The lanes a team actually splits into, offered so nobody starts from blank. */
+const STARTER_BOARDS = ['Build', 'Programming', 'CAD', 'Outreach', 'Portfolio'];
+
 export default function Boards() {
   const now = api.now();
-  const boards = useAsync(api.listBoards);
+  const [reloadKey, setReloadKey] = useState(0);
+  const boards = useAsync(api.listBoards, [reloadKey]);
   const members = useAsync(api.listMembers);
-  const allTasks = useAsync(() => api.listTasks());
+  const allTasks = useAsync(() => api.listTasks(), [reloadKey]);
+  const { member } = useSession();
+  const canManage = member.role === 'coach' || member.role === 'mentor';
+  const [creating, setCreating] = useState(false);
+
+  async function createBoard(name: string) {
+    setCreating(true);
+    try {
+      await api.createBoard({ name });
+      setReloadKey((k) => k + 1);
+    } finally {
+      setCreating(false);
+    }
+  }
 
   const [boardId, setBoardId] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -81,7 +100,9 @@ export default function Boards() {
           return prev.filter((t) => t.id !== op.task_id);
       }
     });
-    void api.mutateBoard(op);
+    // Local state is already updated above; this persists it. Only meaningful
+    // once a board is selected, which it always is by the time an op can fire.
+    if (boardId) void api.mutateBoard(boardId, op);
   }
 
   function onDragStart(e: DragStartEvent) {
@@ -143,7 +164,28 @@ export default function Boards() {
         {boards.status === 'ready' && (boards.data?.length ?? 0) === 0 ? (
           <EmptyState
             title="No boards yet."
-            aside="Sub-team boards arrive with the next release. Your roster is already live — start there."
+            aside={
+              canManage
+                ? 'Make one per sub-team. Action items from a meeting land on whichever board you pick.'
+                : 'Your coach has not set up any boards yet.'
+            }
+            action={
+              canManage ? (
+                <div className="flex flex-wrap justify-center gap-2">
+                  {STARTER_BOARDS.map((name) => (
+                    <Button
+                      key={name}
+                      size="sm"
+                      variant="outline"
+                      disabled={creating}
+                      onClick={() => void createBoard(name)}
+                    >
+                      {name}
+                    </Button>
+                  ))}
+                </div>
+              ) : undefined
+            }
           />
         ) : /* boardId is null for a beat after the boards resolve. Without it in
               this condition the screen flashes "no tasks on this board" before

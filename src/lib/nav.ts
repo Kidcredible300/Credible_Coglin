@@ -26,7 +26,7 @@ export interface NavItem {
 
 export const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: Home, primary: true },
-  { to: '/boards', label: 'Boards', icon: ClipboardList, primary: true, stub: true },
+  { to: '/boards', label: 'Boards', icon: ClipboardList, primary: true },
   // Meetings takes the tab-bar slot Outreach had. A team meets two or three
   // times a week and logs outreach maybe twice a month, so this is the one that
   // earns a thumb position on a phone. The bar has exactly four slots — see the
