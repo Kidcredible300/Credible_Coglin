@@ -1,11 +1,22 @@
 import {
   memo,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
   type KeyboardEvent,
 } from 'react';
-import { Bookmark, BookmarkCheck, ChevronDown, GripVertical } from 'lucide-react';
+import {
+  Bookmark,
+  BookmarkCheck,
+  ChevronDown,
+  GripVertical,
+  ImagePlus,
+} from 'lucide-react';
+import { measure, prepareAndUpload } from '@/lib/upload';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,18 +65,29 @@ const KIND_CLASS: Record<BlockKind, string> = {
   image: 'text-muted-foreground text-xs italic',
 };
 
+/** Local-only state for a photo that is still on its way to R2. */
+export interface UploadState {
+  previewUrl: string;
+  progress: number;
+  error?: string;
+  width?: number;
+  height?: number;
+}
+
 interface BlockRowProps {
   block: DraftBlock;
   index: number;
   total: number;
   flagged: boolean;
   readOnly: boolean;
+  upload?: UploadState;
   onChange: (index: number, text: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>, index: number) => void;
   onToggleFlag: (block: DraftBlock) => void;
   onSetKind: (index: number, kind: BlockKind) => void;
   onMove: (index: number, delta: -1 | 1) => void;
   onDelete: (index: number) => void;
+  onRetryUpload: (blockId: string) => void;
 }
 
 const BlockRow = memo(function BlockRow({
@@ -74,13 +96,18 @@ const BlockRow = memo(function BlockRow({
   total,
   flagged,
   readOnly,
+  upload,
   onChange,
   onKeyDown,
   onToggleFlag,
   onSetKind,
   onMove,
   onDelete,
+  onRetryUpload,
 }: BlockRowProps) {
+  const isImage = block.kind === 'image';
+  const src = block.media_id ? `/media/${block.media_id}` : upload?.previewUrl;
+
   return (
     <div className="group/row relative flex items-start gap-1 pl-3">
       {/* The mark for a flagged block is the same field tape that marks the
@@ -148,10 +175,93 @@ const BlockRow = memo(function BlockRow({
         />
       )}
 
-      {/* Autogrow by grid overlay: a hidden replica sizes the row and the
-          textarea fills the same cell. Writing scrollHeight to style on every
-          keystroke forces a synchronous layout per block, which you can feel on
-          a school Chromebook with sixty blocks on screen. */}
+      {isImage ? (
+        <figure className="flex-1 py-1">
+          {src && (
+            <img
+              src={src}
+              alt={block.text || 'Photo from this meeting'}
+              // The box is reserved from the intrinsic size before the upload
+              // finishes, so the notes below do not jump when it lands. Capped
+              // because a portrait phone photo at full width owns the whole
+              // screen and buries the next three paragraphs.
+              style={
+                upload?.width && upload?.height
+                  ? { aspectRatio: `${upload.width} / ${upload.height}` }
+                  : undefined
+              }
+              className={cn(
+                'border-border max-h-[60vh] w-full rounded-md border object-contain',
+                upload && !upload.error && 'opacity-60',
+              )}
+            />
+          )}
+
+          {upload && !upload.error && (
+            <div
+              className="bg-muted mt-1.5 h-1 w-full overflow-hidden rounded-full"
+              role="progressbar"
+              aria-label="Uploading photo"
+              aria-valuenow={Math.round(upload.progress * 100)}
+            >
+              <div
+                className="bg-primary h-full transition-[width]"
+                style={{ width: `${Math.round(upload.progress * 100)}%` }}
+              />
+            </div>
+          )}
+
+          {upload?.error && (
+            // The thumbnail stays. A student must be able to see their photo
+            // did not vanish, or they will take it again and end up with two.
+            <div
+              role="alert"
+              className="text-destructive mt-1.5 flex flex-wrap items-center gap-2 text-xs"
+            >
+              <span>{upload.error}</span>
+              <button
+                type="button"
+                onClick={() => onRetryUpload(block.id)}
+                className="focus-visible:ring-ring min-h-11 font-medium underline focus-visible:ring-2 focus-visible:outline-none"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {/* The caption is load-bearing, not decoration: it is what makes a
+              candidate card readable in March, and it doubles as alt text. */}
+          <figcaption className="grid">
+            <textarea
+              id={`block-input-${block.id}`}
+              value={block.text}
+              readOnly={readOnly}
+              rows={1}
+              placeholder={PLACEHOLDER.image}
+              aria-label="Photo caption"
+              onChange={(e) => onChange(index, e.target.value)}
+              onKeyDown={(e) => onKeyDown(e, index)}
+              className={cn(
+                'placeholder:text-muted-foreground/60 col-start-1 row-start-1 mt-1.5 resize-none overflow-hidden bg-transparent focus-visible:outline-none',
+                KIND_CLASS.image,
+              )}
+            />
+            <span
+              aria-hidden
+              className={cn(
+                'col-start-1 row-start-1 mt-1.5 invisible break-words whitespace-pre-wrap',
+                KIND_CLASS.image,
+              )}
+            >
+              {block.text + '\n'}
+            </span>
+          </figcaption>
+        </figure>
+      ) : (
+      /* Autogrow by grid overlay: a hidden replica sizes the row and the
+         textarea fills the same cell. Writing scrollHeight to style on every
+         keystroke forces a synchronous layout per block, which you can feel on
+         a school Chromebook with sixty blocks on screen. */
       <div className="grid flex-1 py-1">
         <textarea
           id={`block-input-${block.id}`}
@@ -177,6 +287,7 @@ const BlockRow = memo(function BlockRow({
           {block.text + '\n'}
         </span>
       </div>
+      )}
 
       {/* One tap, no dialog, no required fields. Mid-meeting a modal is a stop
           sign, and "which award is this for?" is a March question — it gets
@@ -229,6 +340,139 @@ export function NoteEditor({
    * a split or a merge feel like one keystroke instead of two frames.
    */
   const focusIntent = useRef<{ id: string; caret: number } | null>(null);
+
+  const [uploads, setUploads] = useState<Record<string, UploadState>>({});
+  const fileInput = useRef<HTMLInputElement>(null);
+  /**
+   * Async upload callbacks would otherwise close over a stale block list — the
+   * student keeps typing while a photo is in flight, and writing the media_id
+   * back into an old array would silently discard everything typed since.
+   */
+  const blocksRef = useRef(blocks);
+  blocksRef.current = blocks;
+  /** Held outside the block model so the draft in localStorage never sees a
+   *  blob URL, and so they can be revoked rather than leaked. */
+  const previewUrls = useRef(new Map<string, string>());
+  const pendingFiles = useRef(new Map<string, File>());
+
+  useEffect(() => {
+    const urls = previewUrls.current;
+    return () => {
+      for (const url of urls.values()) URL.revokeObjectURL(url);
+      urls.clear();
+    };
+  }, []);
+
+  const runUpload = useCallback(
+    async (blockId: string, file: File) => {
+      setUploads((prev) => ({
+        ...prev,
+        [blockId]: { ...prev[blockId], progress: 0, error: undefined },
+      }));
+      try {
+        const uploaded = await prepareAndUpload(file, (fraction) =>
+          setUploads((prev) =>
+            prev[blockId]
+              ? { ...prev, [blockId]: { ...prev[blockId], progress: fraction } }
+              : prev,
+          ),
+        );
+
+        const next = blocksRef.current.map((b) =>
+          b.id === blockId ? { ...b, media_id: uploaded.id } : b,
+        );
+        onChange(next, true);
+
+        const url = previewUrls.current.get(blockId);
+        if (url) {
+          URL.revokeObjectURL(url);
+          previewUrls.current.delete(blockId);
+        }
+        pendingFiles.current.delete(blockId);
+        setUploads((prev) => {
+          const rest = { ...prev };
+          delete rest[blockId];
+          return rest;
+        });
+      } catch (error) {
+        setUploads((prev) => ({
+          ...prev,
+          [blockId]: {
+            ...prev[blockId],
+            progress: 0,
+            error:
+              error instanceof Error
+                ? error.message
+                : 'That photo could not be uploaded.',
+          },
+        }));
+      }
+    },
+    [onChange],
+  );
+
+  const insertImages = useCallback(
+    async (files: File[]) => {
+      for (const file of files) {
+        const size = await measure(file);
+        const block = newBlock('image', '');
+        const previewUrl = URL.createObjectURL(file);
+        previewUrls.current.set(block.id, previewUrl);
+        pendingFiles.current.set(block.id, file);
+
+        setUploads((prev) => ({
+          ...prev,
+          [block.id]: {
+            previewUrl,
+            progress: 0,
+            width: size?.width,
+            height: size?.height,
+          },
+        }));
+
+        onChange([...blocksRef.current, block], true);
+        void runUpload(block.id, file);
+      }
+    },
+    [onChange, runUpload],
+  );
+
+  const onRetryUpload = useCallback(
+    (blockId: string) => {
+      const file = pendingFiles.current.get(blockId);
+      if (file) void runUpload(blockId, file);
+    },
+    [runUpload],
+  );
+
+  /** Paste is handled on the container: the target is wherever the caret is,
+   *  and a listener per textarea would be sixty listeners doing one job. */
+  const onPaste = useCallback(
+    (event: ClipboardEvent<HTMLDivElement>) => {
+      if (readOnly) return;
+      const files = [...event.clipboardData.files].filter((f) =>
+        f.type.startsWith('image/'),
+      );
+      if (files.length === 0) return; // plain text falls through to the textarea
+      event.preventDefault();
+      void insertImages(files);
+    },
+    [insertImages, readOnly],
+  );
+
+  const onDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (readOnly) return;
+      // Guarded on Files, so dragging a block does not read as a zero-file drop.
+      if (!event.dataTransfer.types.includes('Files')) return;
+      event.preventDefault();
+      const files = [...event.dataTransfer.files].filter((f) =>
+        f.type.startsWith('image/'),
+      );
+      if (files.length > 0) void insertImages(files);
+    },
+    [insertImages, readOnly],
+  );
 
   useLayoutEffect(() => {
     const intent = focusIntent.current;
@@ -355,7 +599,9 @@ export function NoteEditor({
   );
 
   return (
-    <div className="space-y-0.5">
+    <div className="space-y-0.5" onPaste={onPaste} onDrop={onDrop} onDragOver={(e) => {
+      if (e.dataTransfer.types.includes('Files')) e.preventDefault();
+    }}>
       {blocks.map((block, index) => (
         <BlockRow
           key={block.id}
@@ -364,28 +610,57 @@ export function NoteEditor({
           total={blocks.length}
           flagged={flaggedIds.has(block.id)}
           readOnly={readOnly}
+          upload={uploads[block.id]}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onToggleFlag={onToggleFlag}
           onSetKind={handleSetKind}
           onMove={handleMove}
           onDelete={handleDelete}
+          onRetryUpload={onRetryUpload}
         />
       ))}
 
       {!readOnly && (
-        <button
-          type="button"
-          onClick={() => {
-            const created = newBlock();
-            onChange([...blocks, created], true);
-            focusIntent.current = { id: created.id, caret: 0 };
-          }}
-          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex min-h-11 w-full items-center gap-1.5 rounded pl-3 text-sm focus-visible:ring-2 focus-visible:outline-none"
-        >
-          <ChevronDown className="size-4" aria-hidden />
-          Add a note
-        </button>
+        <div className="flex flex-wrap items-center gap-1">
+          <button
+            type="button"
+            onClick={() => {
+              const created = newBlock();
+              onChange([...blocks, created], true);
+              focusIntent.current = { id: created.id, caret: 0 };
+            }}
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex min-h-11 flex-1 items-center gap-1.5 rounded pl-3 text-sm focus-visible:ring-2 focus-visible:outline-none"
+          >
+            <ChevronDown className="size-4" aria-hidden />
+            Add a note
+          </button>
+
+          {/* Paste is the desktop path and drop is the mouse one. This is the
+              path that actually gets used on a pit-day phone, where there is a
+              camera and no clipboard worth speaking of. */}
+          <button
+            type="button"
+            onClick={() => fileInput.current?.click()}
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex min-h-11 items-center gap-1.5 rounded px-3 text-sm focus-visible:ring-2 focus-visible:outline-none"
+          >
+            <ImagePlus className="size-4" aria-hidden />
+            Add a photo
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/*"
+            multiple
+            className="sr-only"
+            onChange={(event) => {
+              const files = [...(event.target.files ?? [])];
+              if (files.length > 0) void insertImages(files);
+              // Reset, or picking the same photo twice in a row does nothing.
+              event.target.value = '';
+            }}
+          />
+        </div>
       )}
     </div>
   );

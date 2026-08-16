@@ -166,6 +166,12 @@ export default function Portfolio() {
                 candidate.source_type === 'meeting'
                   ? (preview?.title ?? 'A whole meeting')
                   : (preview?.text ?? preview?.caption ?? '');
+              // A photo's media id comes through whether it was flagged as a
+              // block in a meeting or straight from the library.
+              const mediaId =
+                preview?.media_id ??
+                (candidate.source_type === 'media' ? preview?.id : null);
+              const isPhoto = Boolean(mediaId);
 
               return (
                 <li
@@ -186,14 +192,36 @@ export default function Portfolio() {
                     )}
                   </div>
 
-                  <p
-                    className={cn(
-                      'mt-2 text-sm',
-                      !excerpt && 'text-muted-foreground italic',
-                    )}
-                  >
-                    {excerpt || 'This was flagged before anything was typed into it.'}
-                  </p>
+                  {isPhoto && !candidate.source_deleted && (
+                    <img
+                      src={`/media/${mediaId}`}
+                      alt={excerpt || 'Flagged photo'}
+                      // Small and contained: this is a card in a review queue,
+                      // not the photo's own screen.
+                      className="border-border mt-2 max-h-40 rounded-md border object-contain"
+                    />
+                  )}
+
+                  {(!isPhoto || excerpt) && (
+                    <p
+                      className={cn(
+                        'mt-2 text-sm',
+                        !excerpt && 'text-muted-foreground italic',
+                      )}
+                    >
+                      {excerpt || 'This was flagged before anything was typed into it.'}
+                    </p>
+                  )}
+
+                  {/* The inbox earning its keep. An uncaptioned photo is one
+                      nobody can place six months later, and this is the last
+                      moment anyone still remembers what it was. */}
+                  {isPhoto && !excerpt && !candidate.source_deleted && (
+                    <p className="text-muted-foreground mt-2 text-xs italic">
+                      No caption — add one in the meeting while you still
+                      remember what this was.
+                    </p>
+                  )}
 
                   {/* The link back is what makes the inbox trustworthy: you can
                       always see what a fragment meant in context. */}

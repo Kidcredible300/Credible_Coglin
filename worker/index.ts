@@ -3,6 +3,7 @@ import { auth } from './routes/auth';
 import { invites } from './routes/invites';
 import { team } from './routes/team';
 import { candidates } from './routes/candidates';
+import { media, mediaFiles } from './routes/media';
 import { meetings } from './routes/meetings';
 import { notes } from './routes/notes';
 import { series } from './routes/series';
@@ -72,11 +73,17 @@ app.route('/api/meetings', notes);
 app.route('/api/meetings', meetings);
 app.route('/api/series', series);
 app.route('/api/portfolio', candidates);
+app.route('/api/media', media);
 // Mounted last of the /api routes because `team` declares bare paths ('/team',
 // '/members') rather than a prefix, so it would otherwise shadow siblings.
 app.route('/api', team);
 
 app.all('/api/*', (c) => c.json({ error: 'not_found' }, 404));
+
+// Image bytes, mounted OUTSIDE /api on purpose: the no-store middleware above
+// would otherwise make every photo a fresh round trip forever. wrangler.jsonc
+// already reserves /media/* in run_worker_first on all three environments.
+app.route('/media', mediaFiles);
 
 // Exported as an object rather than the Hono app itself, because the Worker now
 // has a second entry point: the nightly backup cron (COG-040).
