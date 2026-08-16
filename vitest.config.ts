@@ -18,9 +18,18 @@ export default defineConfig({
 
       return {
         wrangler: { configPath: './wrangler.jsonc' },
-        // Test-only binding; the setup file replays these into each test
-        // file's isolated database so tests run against the real schema.
-        miniflare: { bindings: { TEST_MIGRATIONS: migrations } },
+        miniflare: {
+          bindings: {
+            // Test-only binding; the setup file replays these into each test
+            // file's isolated database so tests run against the real schema.
+            TEST_MIGRATIONS: migrations,
+            // Auth secrets are per-environment secrets in real deployments;
+            // tests need fixed values to sign up against.
+            SESSION_PEPPER: 'test-pepper',
+            ALPHA_SIGNUP_CODE: 'test-signup-code',
+            APP_BASE_URL: 'http://coglin.test',
+          },
+        },
       };
     }),
   ],

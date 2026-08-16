@@ -10,10 +10,12 @@ import {
   relativeDays,
 } from '@/lib/format';
 import { PageHeader } from '@/components/PageHeader';
+import { SampleDataNotice } from '@/components/SampleDataNotice';
 import { SeasonSpine } from '@/components/SeasonSpine';
 import { StatTile } from '@/components/StatTile';
 import { EvidenceMeter } from '@/components/EvidenceMeter';
 import { Skeleton } from '@/components/Skeleton';
+import { useSession } from '@/lib/session';
 import type { AwardKey } from '@/types';
 
 const AWARD_LABELS: Record<AwardKey, string> = {
@@ -28,6 +30,7 @@ const AWARD_LABELS: Record<AwardKey, string> = {
 };
 
 export default function Dashboard() {
+  const { team } = useSession();
   const now = api.now();
   const season = useAsync(api.getCurrentSeason);
   const calendar = useAsync(api.listCalendar);
@@ -57,9 +60,11 @@ export default function Dashboard() {
 
   return (
     <>
-      <PageHeader eyebrow="Ferrous Wheels" title="Dashboard" />
+      <PageHeader eyebrow={team.name} title="Dashboard" />
 
       <div className="space-y-8 px-4 py-6 md:px-8">
+        <SampleDataNotice feature="The tiles and award tracking below" />
+
         {/* Hero: how much season is left, and what it is pointed at.
             On the ink slab rather than a card — this is the one fact the page
             owes the team, and a white card among white cards makes it just the

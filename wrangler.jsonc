@@ -32,6 +32,16 @@
   ],
   "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "coglin-media-staging" }],
 
+  // Transactional mail (COG-041).
+  //
+  // Deliberately NOT `remote: true`. Email Sending has no local emulator, so
+  // remote bindings are the only way to really send from `vite dev` — but
+  // vitest reads this same top-level block, and a remote binding makes the test
+  // suite open an authenticated connection to Cloudflare. That would break the
+  // property ci.yml depends on: tests run with no Cloudflare credentials.
+  // Tests stub the binding; real sends are verified on staging.
+  "send_email": [{ "name": "EMAIL" }],
+
   "env": {
     "staging": {
       "name": "coglin-app-staging",
@@ -64,7 +74,8 @@
       ],
       "r2_buckets": [
         { "binding": "MEDIA", "bucket_name": "coglin-media-staging" }
-      ]
+      ],
+      "send_email": [{ "name": "EMAIL" }]
     },
 
     "production": {
@@ -89,7 +100,8 @@
           "migrations_dir": "migrations"
         }
       ],
-      "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "coglin-media-prod" }]
+      "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "coglin-media-prod" }],
+      "send_email": [{ "name": "EMAIL" }]
       // Nightly D1 backup -> R2 lands here in Phase 2 (COG-040):
       // "triggers": { "crons": ["0 7 * * *"] }
     }

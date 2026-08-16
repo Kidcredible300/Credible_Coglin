@@ -1,5 +1,8 @@
+import { useState } from 'react';
 import * as api from '@/lib/api';
 import { useAsync } from '@/lib/useAsync';
+import { useSession } from '@/lib/session';
+import { InviteDialog } from '@/components/InviteDialog';
 import { initials } from '@/lib/format';
 import { PageHeader } from '@/components/PageHeader';
 import { Skeleton } from '@/components/Skeleton';
@@ -14,7 +17,12 @@ const ROLE_LABEL: Record<Role, string> = {
 };
 
 export default function Roster() {
-  const members = useAsync(api.listMembers);
+  // Bumping this refetches the roster after an invite is accepted or created,
+  // rather than hand-patching local state with a member who does not exist yet.
+  const [reloadKey, setReloadKey] = useState(0);
+  const members = useAsync(api.listMembers, [reloadKey]);
+  const { member: me } = useSession();
+  const canInvite = me.role === 'coach' || me.role === 'mentor';
   const list = members.data ?? [];
   const students = list.filter((m) => m.role === 'student');
   const adults = list.filter((m) => m.role !== 'student');
@@ -24,6 +32,12 @@ export default function Roster() {
       <PageHeader eyebrow="2026-27" title="Roster" />
 
       <div className="space-y-8 px-4 py-6 md:px-8">
+        {canInvite && (
+          <div className="flex justify-end">
+            <InviteDialog onInvited={() => setReloadKey((k) => k + 1)} />
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-3 sm:max-w-md">
           <Count
             n={students.length}

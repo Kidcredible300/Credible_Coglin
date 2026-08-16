@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { Menu } from 'lucide-react';
 import { NAV } from '@/lib/nav';
-import { team } from '@/lib/mock/fixtures';
+import { useSession, useSessionState } from '@/lib/session';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import type { Session } from '@/lib/session';
 import { cn } from '@/lib/utils';
 
 const PRIMARY = NAV.filter((n) => n.primary);
@@ -20,6 +21,7 @@ export function AppShell() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const location = useLocation();
   const current = NAV.find((n) => n.to === location.pathname);
+  const { team } = useSession();
 
   return (
     <div className="bg-background min-h-dvh md:flex">
@@ -35,7 +37,7 @@ export function AppShell() {
           The ink slab. No right border: the surface change already draws the
           edge, and a hairline on top of it is a seam for its own sake. */}
       <aside className="bg-ink text-ink-foreground hidden w-60 shrink-0 flex-col md:sticky md:top-0 md:flex md:h-dvh">
-        <TeamMark />
+        <TeamMark team={team} />
         <nav className="flex-1 overflow-y-auto px-2 py-1.5" aria-label="Main">
           <ul className="space-y-0.5">
             {NAV.map((item) => (
@@ -73,7 +75,7 @@ export function AppShell() {
             className="bg-ink text-ink-foreground flex w-72 flex-col p-0"
           >
             <SheetTitle className="sr-only">Navigation</SheetTitle>
-            <TeamMark />
+            <TeamMark team={team} />
             <nav className="flex-1 overflow-y-auto px-2 py-1.5" aria-label="All sections">
               <ul className="space-y-0.5">
                 {NAV.map((item) => (
@@ -135,7 +137,7 @@ export function AppShell() {
  * name on purpose — in FTC the number IS the identity. Teams are announced,
  * queued, and scouted by number; the name is the nickname.
  */
-function TeamMark() {
+function TeamMark({ team }: { team: Session['team'] }) {
   return (
     <div className="border-ink-border flex items-center gap-3 border-b px-4 py-4">
       {/* Slot for the team's own logo, which teams put on everything —
@@ -167,20 +169,45 @@ function TeamMark() {
  * slab colour is ever retuned.
  */
 function SidebarFoot() {
+  const { member } = useSession();
+  const { refresh } = useSessionState();
+
+  async function signOut() {
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      credentials: 'same-origin',
+    });
+    await refresh();
+  }
+
   return (
-    <div className="border-ink-border flex items-center justify-between border-t px-3 py-3">
-      <img
-        src="/coglin-logo.svg"
-        alt="Coglin"
-        // One arbitrary filter, not `invert hue-rotate-180`: Tailwind emits
-        // filter functions in a canonical order, and here the order is the
-        // effect — invert first turns the navy artwork light and the white
-        // plate black, then the hue rotation puts the blue back. Screen drops
-        // the now-black plate onto the slab.
-        className="[filter:invert(1)_hue-rotate(180deg)] block h-11 mix-blend-screen"
-      />
-      <ThemeToggle />
-    </div>
+    <>
+      <div className="border-ink-border flex items-center justify-between gap-2 border-t px-3 py-2.5">
+        <span className="text-ink-muted min-w-0 truncate text-xs">
+          {member.display_name}
+        </span>
+        <button
+          type="button"
+          onClick={() => void signOut()}
+          className="text-ink-subtle hover:text-ink-foreground focus-visible:ring-ring shrink-0 rounded px-1.5 py-1 text-xs focus-visible:ring-2 focus-visible:outline-none"
+        >
+          Sign out
+        </button>
+      </div>
+      <div className="border-ink-border flex items-center justify-between border-t px-3 py-3">
+        <img
+          src="/coglin-logo.svg"
+          alt="Coglin"
+          // One arbitrary filter, not `invert hue-rotate-180`: Tailwind emits
+          // filter functions in a canonical order, and here the order is the
+          // effect — invert first turns the navy artwork light and the white
+          // plate black, then the hue rotation puts the blue back. Screen drops
+          // the now-black plate onto the slab.
+          className="[filter:invert(1)_hue-rotate(180deg)] block h-11 mix-blend-screen"
+        />
+        <ThemeToggle />
+      </div>
+    </>
   );
 }
 

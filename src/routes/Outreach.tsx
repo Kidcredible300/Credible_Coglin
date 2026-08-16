@@ -2,6 +2,7 @@ import * as api from '@/lib/api';
 import { useAsync } from '@/lib/useAsync';
 import { formatCount, formatHours, formatLongDate } from '@/lib/format';
 import { PageHeader } from '@/components/PageHeader';
+import { SampleDataNotice } from '@/components/SampleDataNotice';
 import { StatTile } from '@/components/StatTile';
 import { EmptyState } from '@/components/EmptyState';
 import { Skeleton } from '@/components/Skeleton';
@@ -16,6 +17,10 @@ export default function Outreach() {
   return (
     <>
       <PageHeader eyebrow="2026-27" title="Outreach log" />
+
+      <div className="px-4 pt-6 md:px-8">
+        <SampleDataNotice feature="The outreach log" />
+      </div>
 
       <div className="space-y-8 px-4 py-6 md:px-8">
         {/* The rollup is the header, not a footnote: these three figures are

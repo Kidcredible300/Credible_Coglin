@@ -14,6 +14,7 @@ import * as api from '@/lib/api';
 import { useAsync } from '@/lib/useAsync';
 import { TASK_COLUMNS, type BoardOp, type Task, type TaskStatus } from '@/types';
 import { PageHeader } from '@/components/PageHeader';
+import { SampleDataNotice } from '@/components/SampleDataNotice';
 import { EmptyState } from '@/components/EmptyState';
 import { Skeleton } from '@/components/Skeleton';
 import { Column } from '@/components/board/Column';
@@ -98,6 +99,10 @@ export default function Boards() {
   return (
     <>
       <PageHeader eyebrow="Build season" title="Boards" />
+
+      <div className="px-4 pt-6 md:px-8">
+        <SampleDataNotice feature="Boards" />
+      </div>
 
       {/* Board switcher. Horizontal scroll on narrow screens rather than a
           select — five sub-teams is few enough to see all at once. */}
