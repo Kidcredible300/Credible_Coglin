@@ -204,6 +204,49 @@ export interface MeetingSeries {
   updated_at: number;
 }
 
+/**
+ * A block is the unit of a meeting's notes AND the unit of portfolio flagging.
+ * Those are the same thing on purpose: "flag this paragraph", "flag this
+ * picture" and "flag this decision" are one gesture against one row.
+ */
+export type BlockKind =
+  | 'heading'
+  | 'paragraph'
+  | 'bullet'
+  | 'decision'
+  | 'action'
+  | 'image';
+
+export interface NoteBlock {
+  id: string;
+  meeting_id: string;
+  /** REAL, sparse. Inserting between two blocks is a one-row write. */
+  position: number;
+  kind: BlockKind;
+  text: string;
+  media_id: string | null;
+  source_agenda_item_id: string | null;
+  created_by_member_id: string | null;
+  updated_by_member_id: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AgendaItem {
+  id: string;
+  meeting_id: string;
+  position: number;
+  title: string;
+  detail: string | null;
+  owner_member_id: string | null;
+  minutes_planned: number | null;
+  sub_team: string | null;
+  done: number;
+  created_by: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
 export const WEEKDAYS: { id: number; short: string; label: string }[] = [
   { id: 0, short: 'S', label: 'Sunday' },
   { id: 1, short: 'M', label: 'Monday' },

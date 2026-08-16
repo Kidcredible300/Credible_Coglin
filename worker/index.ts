@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { auth } from './routes/auth';
 import { invites } from './routes/invites';
 import { team } from './routes/team';
+import { candidates } from './routes/candidates';
 import { meetings } from './routes/meetings';
 import { notes } from './routes/notes';
 import { series } from './routes/series';
@@ -70,6 +71,7 @@ app.route('/api/invites', invites);
 app.route('/api/meetings', notes);
 app.route('/api/meetings', meetings);
 app.route('/api/series', series);
+app.route('/api/portfolio', candidates);
 // Mounted last of the /api routes because `team` declares bare paths ('/team',
 // '/members') rather than a prefix, so it would otherwise shadow siblings.
 app.route('/api', team);

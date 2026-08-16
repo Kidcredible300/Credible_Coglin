@@ -31,11 +31,17 @@
  * to offer one.
  */
 import type {
+  AgendaItem,
   AwardCriterion,
+  AwardKey,
   Board,
   BoardOp,
+  BlockKind,
   CalendarEvent,
+  CandidateSourceType,
+  CandidateState,
   Meeting,
+  NoteBlock,
   MeetingKind,
   MeetingSeries,
   MeetingStatus,
@@ -220,8 +226,8 @@ export function listMeetings(params?: {
  */
 export interface MeetingDetail {
   meeting: Meeting;
-  agenda: unknown[];
-  blocks: unknown[];
+  agenda: AgendaItem[];
+  blocks: NoteBlock[];
   attendance: unknown[];
   action_items: unknown[];
   candidates: PortfolioCandidate[];
@@ -321,6 +327,203 @@ export function updateSeries(
 
 export function deleteSeries(id: string): Promise<{ ok: true; deleted: number }> {
   return send(`/api/series/${id}`, 'DELETE');
+}
+
+// --------------------------------------------------------------------- notes
+
+export function listBlocks(
+  meetingId: string,
+): Promise<{ blocks: NoteBlock[]; rev: number }> {
+  return get(`/api/meetings/${meetingId}/blocks`);
+}
+
+/**
+ * One row on the server. Polled by an open editor so a second note-taker's
+ * edits surface without a websocket; cheap enough to ask constantly.
+ */
+export function blocksRev(
+  meetingId: string,
+): Promise<{ rev: number; count: number }> {
+  return get(`/api/meetings/${meetingId}/blocks/rev`);
+}
+
+/**
+ * The client picks the id so a flag can attach to a paragraph that has not
+ * finished saving. A retried create returns the row that already exists rather
+ * than duplicating a line the student watched appear once.
+ */
+export function createBlock(
+  meetingId: string,
+  input: {
+    id?: string;
+    kind?: BlockKind;
+    text?: string;
+    media_id?: string | null;
+    after_id?: string;
+    position?: number;
+  },
+): Promise<NoteBlock> {
+  return send<{ block: NoteBlock }>(
+    `/api/meetings/${meetingId}/blocks`,
+    'POST',
+    input,
+  ).then((r) => r.block);
+}
+
+/** The keystroke path. An unchanged text write costs nothing server-side. */
+export function updateBlock(
+  meetingId: string,
+  blockId: string,
+  patch: { text?: string; kind?: BlockKind; media_id?: string | null; position?: number },
+): Promise<NoteBlock> {
+  return send<{ block: NoteBlock }>(
+    `/api/meetings/${meetingId}/blocks/${blockId}`,
+    'PATCH',
+    patch,
+  ).then((r) => r.block);
+}
+
+/** Soft delete. `candidate_orphaned` says a portfolio flag outlived the block. */
+export function deleteBlock(
+  meetingId: string,
+  blockId: string,
+): Promise<{ ok: true; block_id: string; candidate_orphaned: boolean }> {
+  return send(`/api/meetings/${meetingId}/blocks/${blockId}`, 'DELETE');
+}
+
+export function restoreBlock(
+  meetingId: string,
+  blockId: string,
+): Promise<NoteBlock> {
+  return send<{ block: NoteBlock }>(
+    `/api/meetings/${meetingId}/blocks/${blockId}/restore`,
+    'POST',
+  ).then((r) => r.block);
+}
+
+/** The structural path: reorder, multi-block paste, range delete. Atomic. */
+export function replaceBlocks(
+  meetingId: string,
+  blocks: {
+    id?: string;
+    kind: BlockKind;
+    text: string;
+    media_id?: string | null;
+  }[],
+): Promise<{ blocks: NoteBlock[]; rev: number }> {
+  return send(`/api/meetings/${meetingId}/blocks`, 'PUT', { blocks });
+}
+
+export function createAgendaItem(
+  meetingId: string,
+  input: { title: string; detail?: string; owner_member_id?: string; minutes_planned?: number },
+): Promise<AgendaItem> {
+  return send<{ item: AgendaItem }>(
+    `/api/meetings/${meetingId}/agenda`,
+    'POST',
+    input,
+  ).then((r) => r.item);
+}
+
+export function updateAgendaItem(
+  meetingId: string,
+  itemId: string,
+  patch: { title?: string; detail?: string | null; done?: boolean },
+): Promise<AgendaItem> {
+  return send<{ item: AgendaItem }>(
+    `/api/meetings/${meetingId}/agenda/${itemId}`,
+    'PATCH',
+    patch,
+  ).then((r) => r.item);
+}
+
+export function deleteAgendaItem(
+  meetingId: string,
+  itemId: string,
+): Promise<{ ok: true }> {
+  return send(`/api/meetings/${meetingId}/agenda/${itemId}`, 'DELETE');
+}
+
+/** Seeds notes from the agenda and marks the meeting under way. Idempotent. */
+export function startMeeting(
+  meetingId: string,
+): Promise<{ meeting: Meeting; blocks: NoteBlock[] }> {
+  return send(`/api/meetings/${meetingId}/start`, 'POST');
+}
+
+// -------------------------------------------------------- portfolio candidates
+
+/**
+ * Flag something for the portfolio. Idempotent — re-flagging returns the row
+ * that already exists, so a double tap reads as "yes, it worked".
+ */
+export function flagCandidate(input: {
+  source_type: CandidateSourceType;
+  source_id: string;
+  suggested_award?: AwardKey | null;
+  why?: string;
+}): Promise<PortfolioCandidate> {
+  return send<{ candidate: PortfolioCandidate }>(
+    '/api/portfolio/candidates',
+    'POST',
+    input,
+  ).then((r) => r.candidate);
+}
+
+/** Unflag by source, so a toggle does not need to know the candidate id. */
+export function unflagCandidate(
+  sourceType: CandidateSourceType,
+  sourceId: string,
+): Promise<{ ok: true }> {
+  const query = new URLSearchParams({
+    source_type: sourceType,
+    source_id: sourceId,
+  });
+  return send(`/api/portfolio/candidates?${query}`, 'DELETE');
+}
+
+/**
+ * A candidate plus enough of its source to be readable in March without
+ * opening the meeting it came from.
+ */
+export interface HydratedCandidate extends PortfolioCandidate {
+  preview: {
+    id: string;
+    kind?: string;
+    text?: string;
+    media_id?: string | null;
+    meeting_id?: string;
+    meeting_title?: string;
+    meeting_starts_at?: number;
+    title?: string;
+    starts_at?: number;
+    caption?: string | null;
+  } | null;
+  /** The block was deleted after being flagged; the flag deliberately survives. */
+  source_deleted: boolean;
+}
+
+export function listCandidates(state?: CandidateState): Promise<HydratedCandidate[]> {
+  const suffix = state ? `?state=${state}` : '';
+  return get<{ candidates: HydratedCandidate[] }>(
+    `/api/portfolio/candidates${suffix}`,
+  ).then((r) => r.candidates);
+}
+
+export function updateCandidate(
+  id: string,
+  patch: {
+    state?: CandidateState;
+    suggested_award?: AwardKey | null;
+    why?: string | null;
+    placed_page_id?: string;
+  },
+): Promise<PortfolioCandidate> {
+  return send<{ candidate: PortfolioCandidate }>(
+    `/api/portfolio/candidates/${id}`,
+    'PATCH',
+    patch,
+  ).then((r) => r.candidate);
 }
 
 // --------------------------------------------------------------------------

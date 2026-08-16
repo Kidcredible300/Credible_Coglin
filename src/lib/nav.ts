@@ -35,7 +35,7 @@ export const NAV: NavItem[] = [
   { to: '/roster', label: 'Roster', icon: Users, primary: true },
   { to: '/outreach', label: 'Outreach', icon: Megaphone, stub: true },
   { to: '/awards', label: 'Awards', icon: Trophy, stub: true },
-  { to: '/portfolio', label: 'Portfolio', icon: FileText, stub: true },
+  { to: '/portfolio', label: 'Portfolio', icon: FileText },
   { to: '/calendar', label: 'Calendar', icon: CalendarDays, stub: true },
   { to: '/budget', label: 'Budget', icon: Coins, stub: true },
 ];
