@@ -34,6 +34,14 @@
 --------------------------------------------------------------------------- */
 
 :root {
+  /* Tells the browser to draw its OWN controls in the right theme: date and
+     time pickers, scrollbars, spinners. Meetings uses native <input type=date>
+     and <input type=time> — the OS picker beats a bundled calendar grid on a
+     phone or a school Chromebook — and without this those inputs render as a
+     white slab in dark mode with an invisible calendar glyph. One line, and it
+     fixes scrollbars app-wide too. */
+  color-scheme: light;
+
   /* Primitives */
   --tape-400: oklch(0.78 0.16 55);
   --tape-500: oklch(0.7 0.19 47); /* field-tape orange, the primary */
@@ -135,6 +143,7 @@
    go to cool graphite, the tape stays hot, the alliance blue lifts so it does
    not sink into the background. */
 [data-theme='dark'] {
+  color-scheme: dark;
   --tape-400: oklch(0.82 0.15 58);
   --tape-500: oklch(0.74 0.18 50);
   --tape-600: oklch(0.66 0.19 45);

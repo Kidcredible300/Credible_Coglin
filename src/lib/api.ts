@@ -12,8 +12,8 @@
  * that — the numbers still read as theirs at a glance, and the whole product is
  * asking to be trusted with a season that cannot be reconstructed.
  *
- *   REAL   getTeam, getCurrentSeason, listMembers
- *   EMPTY  boards, tasks, outreach, calendar, meetings, award criteria
+ *   REAL   getTeam, getCurrentSeason, listMembers, meetings, series
+ *   EMPTY  boards, tasks, outreach, calendar, award criteria
  *
  * There is no demo-data mode and no `mock/fixtures` import, deliberately. The
  * first attempt kept the fixtures behind a build-time flag on the assumption
@@ -36,8 +36,13 @@ import type {
   BoardOp,
   CalendarEvent,
   Meeting,
+  MeetingKind,
+  MeetingSeries,
+  MeetingStatus,
+  MeetingSummary,
   Member,
   OutreachEvent,
+  PortfolioCandidate,
   Season,
   Task,
   Team,
@@ -94,8 +99,52 @@ async function get<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+/**
+ * Every write goes through here.
+ *
+ * Extracted from `createInvite` when meetings brought the count of hand-rolled
+ * POSTs to four. The 401 branch is the reason it must be one function and not a
+ * convention: a write that forgets to broadcast SESSION_EXPIRED leaves the user
+ * staring at a generic failure on a screen that will never work again until
+ * they reload.
+ *
+ * The thrown Error carries the server's machine-readable code (`invalid_kind`,
+ * `too_many_occurrences`), which the calling component maps to copy. Codes, not
+ * sentences, cross this boundary.
+ */
+async function send<T>(
+  path: string,
+  method: 'POST' | 'PATCH' | 'PUT' | 'DELETE',
+  body?: unknown,
+): Promise<T> {
+  const response = await fetch(path, {
+    method,
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    cache: 'no-store',
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (response.status === 401) {
+    signalExpired();
+    throw new Unauthenticated();
+  }
+  if (!response.ok) {
+    const failure = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(failure.error ?? `request_failed_${response.status}`);
+  }
+  return (await response.json()) as T;
+}
+
 export function getTeam(): Promise<Team> {
   return get<Team>('/api/team');
+}
+
+export function updateTeam(patch: {
+  name?: string;
+  region?: string | null;
+  timezone?: string;
+}): Promise<Team> {
+  return send<Team>('/api/team', 'PATCH', patch);
 }
 
 export function getCurrentSeason(): Promise<Season> {
@@ -142,10 +191,142 @@ export async function createInvite(input: {
   return (await response.json()) as InviteResult;
 }
 
+// ------------------------------------------------------------------ meetings
+
+export function listMeetings(params?: {
+  from?: number;
+  to?: number;
+  status?: MeetingStatus;
+  limit?: number;
+}): Promise<MeetingSummary[]> {
+  const query = new URLSearchParams();
+  if (params?.from !== undefined) query.set('from', String(params.from));
+  if (params?.to !== undefined) query.set('to', String(params.to));
+  if (params?.status) query.set('status', params.status);
+  if (params?.limit !== undefined) query.set('limit', String(params.limit));
+  const suffix = query.toString() ? `?${query}` : '';
+  return get<{ meetings: MeetingSummary[] }>(`/api/meetings${suffix}`).then(
+    (r) => r.meetings,
+  );
+}
+
+/**
+ * Everything the meeting screen renders, in one request.
+ *
+ * `candidates` is what lets the note editor draw its portfolio marks without a
+ * second round trip — the flag lives in `portfolio_candidates`, not on the
+ * block, so there is exactly one source of truth for whether something is
+ * flagged.
+ */
+export interface MeetingDetail {
+  meeting: Meeting;
+  agenda: unknown[];
+  blocks: unknown[];
+  attendance: unknown[];
+  action_items: unknown[];
+  candidates: PortfolioCandidate[];
+  attendees: string[];
+}
+
+export function getMeeting(id: string): Promise<MeetingDetail> {
+  return get<MeetingDetail>(`/api/meetings/${id}`);
+}
+
+export function createMeeting(input: {
+  starts_at: number;
+  title?: string;
+  kind?: MeetingKind;
+  location?: string | null;
+  duration_minutes?: number;
+}): Promise<Meeting> {
+  return send<{ meeting: Meeting }>('/api/meetings', 'POST', input).then((r) => r.meeting);
+}
+
+export function updateMeeting(
+  id: string,
+  patch: Partial<
+    Pick<Meeting, 'title' | 'starts_at' | 'ends_at' | 'location' | 'kind' | 'status'>
+  >,
+): Promise<Meeting> {
+  return send<{ meeting: Meeting }>(`/api/meetings/${id}`, 'PATCH', patch).then(
+    (r) => r.meeting,
+  );
+}
+
+/** Cancel keeps the row and its notes. Deleting is a different, coach-only act. */
+export function cancelMeeting(id: string, reason?: string): Promise<Meeting> {
+  return send<{ meeting: Meeting }>(`/api/meetings/${id}/cancel`, 'POST', {
+    reason,
+  }).then((r) => r.meeting);
+}
+
+export function deleteMeeting(id: string, force = false): Promise<{ ok: true }> {
+  return send<{ ok: true }>(
+    `/api/meetings/${id}${force ? '?force=1' : ''}`,
+    'DELETE',
+  );
+}
+
+export interface SeriesResult {
+  series: MeetingSeries;
+  created: number;
+  skipped: number;
+  first_starts_at: number;
+  last_starts_at: number;
+}
+
+export function createSeries(input: {
+  title?: string;
+  kind?: MeetingKind;
+  location?: string | null;
+  days_of_week: number[];
+  start_minute: number;
+  duration_minutes?: number;
+  timezone?: string;
+  starts_on?: number;
+  until?: number;
+}): Promise<SeriesResult> {
+  return send<SeriesResult>('/api/series', 'POST', input);
+}
+
+export function listSeries(): Promise<MeetingSeries[]> {
+  return get<{ series: MeetingSeries[] }>('/api/series').then((r) => r.series);
+}
+
+/**
+ * Edit a rule. Future occurrences only — the server refuses any other scope,
+ * because rewriting the start time of a meeting that already happened
+ * desynchronises it from the notes taken that evening.
+ */
+export function updateSeries(
+  id: string,
+  patch: Partial<{
+    title: string;
+    kind: MeetingKind;
+    location: string | null;
+    days_of_week: number[];
+    start_minute: number;
+    duration_minutes: number;
+    until: number;
+  }>,
+): Promise<{
+  series: MeetingSeries;
+  created: number;
+  updated: number;
+  cancelled: number;
+  deleted: number;
+}> {
+  return send(`/api/series/${id}?apply=future_only`, 'PATCH', patch);
+}
+
+export function deleteSeries(id: string): Promise<{ ok: true; deleted: number }> {
+  return send(`/api/series/${id}`, 'DELETE');
+}
+
 // --------------------------------------------------------------------------
 // Not built yet. Each returns nothing until its feature lands (COG-011 boards,
-// COG-014 outreach, COG-013 awards, COG-016 calendar, COG-036 meetings), at
-// which point the body becomes a `get()` call and the screens do not change.
+// COG-014 outreach, COG-013 awards, COG-016 calendar), at which point the body
+// becomes a `get()` call and the screens do not change.
 // --------------------------------------------------------------------------
 
 export function listBoards(): Promise<Board[]> {
@@ -162,10 +343,6 @@ export function listOutreach(): Promise<OutreachEvent[]> {
 }
 
 export function listCalendar(): Promise<CalendarEvent[]> {
-  return resolve([]);
-}
-
-export function listMeetings(): Promise<Meeting[]> {
   return resolve([]);
 }
 

@@ -36,7 +36,20 @@ export default function Dashboard() {
   const tasks = useAsync(() => api.listTasks());
   const outreach = useAsync(api.listOutreach);
   const criteria = useAsync(api.listAwardCriteria);
-  const meetings = useAsync(api.listMeetings);
+  const meetings = useAsync(() => api.listMeetings());
+
+  /**
+   * The next one, not the first one.
+   *
+   * The list arrives ordered by start time across the whole season, so once a
+   * team actually has a schedule, `meetings[0]` is a night in September and
+   * this card would confidently show it until May. Cancelled occurrences are
+   * skipped for the same reason: "next meeting" has to mean a meeting that is
+   * going to happen.
+   */
+  const nextMeeting = meetings.data?.find(
+    (m) => m.starts_at >= now && m.status !== 'cancelled',
+  );
 
   const nextDeadline = calendar.data
     ?.filter((e) => e.starts_at >= now)
@@ -187,24 +200,30 @@ export default function Dashboard() {
               <h2 className="u-eyebrow mb-3">Next meeting</h2>
               <div className="bg-card border-border rounded-lg border p-4">
                 {meetings.status === 'loading' && <Skeleton className="h-16" />}
-                {meetings.data?.[0] && (
-                  <>
+                {nextMeeting && (
+                  <Link
+                    to={`/meetings/${nextMeeting.id}`}
+                    className="focus-visible:ring-ring block rounded focus-visible:ring-2 focus-visible:outline-none"
+                  >
                     <div className="u-display text-heading text-base">
-                      {formatLongDate(meetings.data[0].starts_at)}
+                      {formatLongDate(nextMeeting.starts_at)}
                     </div>
                     <div className="text-muted-foreground mt-0.5 text-sm">
-                      {formatTime(meetings.data[0].starts_at)} ·{' '}
-                      {relativeDays(meetings.data[0].starts_at, now)}
+                      {formatTime(nextMeeting.starts_at)} ·{' '}
+                      {relativeDays(nextMeeting.starts_at, now)}
                     </div>
-                    {meetings.data[0].agenda && (
-                      <p className="mt-3 text-sm">{meetings.data[0].agenda}</p>
+                    <p className="mt-3 text-sm">{nextMeeting.title}</p>
+                    {nextMeeting.location && (
+                      <p className="text-muted-foreground mt-0.5 text-sm">
+                        {nextMeeting.location}
+                      </p>
                     )}
-                  </>
+                  </Link>
                 )}
                 {/* No meeting is a real answer, not a slow one. The old code
                     fell back to a skeleton, so an empty team saw a loading bar
                     that never resolved. */}
-                {meetings.status === 'ready' && !meetings.data?.[0] && (
+                {meetings.status === 'ready' && !nextMeeting && (
                   <p className="text-muted-foreground text-sm">
                     Nothing scheduled yet.
                   </p>

@@ -16,8 +16,6 @@ const NOTES: Record<string, string> = {
     'League meets, qualifiers, the portfolio print deadline, and the FIRST Leadership nomination window.',
   '/budget':
     'Income and expense lines, sponsor tiers and thank-you status — the progress tracking Sustain requires.',
-  '/meetings':
-    'Recurring schedule, agendas, and structured notes whose action items become board tasks.',
 };
 
 export default function Placeholder() {
