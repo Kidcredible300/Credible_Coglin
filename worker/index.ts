@@ -7,6 +7,33 @@ import type { AppEnv } from './lib/tenancy';
 
 const app = new Hono<AppEnv>();
 
+/**
+ * Nothing under /api may ever be cached.
+ *
+ * Every response here is scoped to one session, and `GET /api/auth/me` is the
+ * dangerous one: the client asks it on every boot to decide between the app and
+ * the login screen. If anything between the Worker and the browser holds on to
+ * an `{"authenticated":false}` answer, a user who has just signed in gets sent
+ * straight back to the login screen — and because the POST that created their
+ * session was never cached, the session row exists and looks perfectly healthy
+ * from the server side. That failure is invisible in logs and impossible to
+ * reproduce from a shell.
+ *
+ * `Vary: Cookie` is the second half: without it, a shared cache is entitled to
+ * serve one signed-in user's response to a different user. That is a tenancy
+ * leak by way of HTTP semantics rather than SQL.
+ *
+ * The Inkubus website sets no-store on every /api response for the same reason
+ * (`website/inkubus/functions/_lib/json.js`); this port dropped it, which is
+ * the bug this middleware fixes.
+ */
+app.use('/api/*', async (c, next) => {
+  await next();
+  c.header('Cache-Control', 'no-store, no-cache, must-revalidate');
+  c.header('Pragma', 'no-cache');
+  c.header('Vary', 'Cookie');
+});
+
 // Health check. Touches D1 on purpose — a 200 here means the binding resolved,
 // not just that the Worker booted. Phase 0 verification depends on that.
 app.get('/api/health', async (c) => {

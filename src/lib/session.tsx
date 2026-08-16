@@ -42,7 +42,14 @@ const SessionContext = createContext<
 >(null);
 
 export async function fetchSession(): Promise<Session | null> {
-  const response = await fetch('/api/auth/me', { credentials: 'same-origin' });
+  const response = await fetch('/api/auth/me', {
+    credentials: 'same-origin',
+    // Belt and braces with the Worker's no-store headers. This request decides
+    // whether the user sees the app or the login screen, and a stale "not
+    // signed in" answer strands them in a loop they cannot escape by retrying.
+    // Cheap insurance against a proxy that ignores response headers.
+    cache: 'no-store',
+  });
   if (!response.ok) return null;
   const body = (await response.json()) as { authenticated: boolean } & Session;
   return body.authenticated ? body : null;

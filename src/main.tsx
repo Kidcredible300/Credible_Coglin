@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import './index.css';
@@ -31,6 +31,22 @@ function RequireSession() {
   return <AppShell />;
 }
 
+/**
+ * The mirror of RequireSession, for /login and /signup.
+ *
+ * Without it a signed-in user who navigates to the sign-in page — by habit, by
+ * bookmark, or by hitting back — is shown a login form for the account they are
+ * already using. There is no error and no way forward that looks different from
+ * what they just did, so the honest reading is "it didn't work", and they try
+ * again. Sending them to the app instead makes the state legible.
+ */
+function RedirectIfSignedIn({ children }: { children: ReactNode }) {
+  const { status } = useSessionState();
+  if (status === 'loading') return null;
+  if (status === 'authenticated') return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
@@ -38,8 +54,22 @@ createRoot(document.getElementById('root')!).render(
         <Routes>
           {/* Outside the shell: neither has a signed-in user, so neither can
               draw a sidebar with a team in it. */}
-          <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Signup />} />
+          <Route
+            path="/login"
+            element={
+              <RedirectIfSignedIn>
+                <Login />
+              </RedirectIfSignedIn>
+            }
+          />
+          <Route
+            path="/signup"
+            element={
+              <RedirectIfSignedIn>
+                <Signup />
+              </RedirectIfSignedIn>
+            }
+          />
           <Route path="/invite/:token" element={<AcceptInvite />} />
 
           <Route element={<RequireSession />}>

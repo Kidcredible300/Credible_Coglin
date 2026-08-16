@@ -66,7 +66,13 @@ function signalExpired(): void {
 }
 
 async function get<T>(path: string): Promise<T> {
-  const response = await fetch(path, { credentials: 'same-origin' });
+  // no-store for the same reason as fetchSession: a cached 401 anywhere in this
+  // path trips the session-expired signal and logs the user out of a session
+  // that is still perfectly valid.
+  const response = await fetch(path, {
+    credentials: 'same-origin',
+    cache: 'no-store',
+  });
   if (response.status === 401) {
     signalExpired();
     throw new Unauthenticated();
