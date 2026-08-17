@@ -234,10 +234,25 @@ export function seasonSlots(
   startsAt: number,
   endsAt: number,
   timezone: string,
-): { first: number; last: number } {
+): { first: number; floor: number; last: number } {
+  const lastDate = localDateInZone(endsAt, timezone);
+  // The day after the previous season ended — same calendar day, a year back,
+  // plus one. For a Sept 1 - May 31 season that lands on June 1, and it stays
+  // correct across leap years because addLocalDay owns the month arithmetic.
+  const previousSeasonEnd = { y: lastDate.y - 1, m: lastDate.m, d: lastDate.d };
+
   return {
     first: toSlot(localDateInZone(startsAt, timezone)),
-    last: toSlot(localDateInZone(endsAt, timezone)),
+    /**
+     * The earliest date a recurrence rule may begin.
+     *
+     * NOT the season's own first day, which was the original bug. FTC kickoff is
+     * in September but teams meet through the summer to prepare, so clamping a
+     * rule up to September 1 made preseason meetings unschedulable. Anything
+     * after the previous season finished belongs to this one.
+     */
+    floor: toSlot(addLocalDay(previousSeasonEnd, 1)),
+    last: toSlot(lastDate),
   };
 }
 

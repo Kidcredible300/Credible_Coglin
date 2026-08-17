@@ -105,15 +105,30 @@ meetings.get('/', requireMember, async (c) => {
   if (!season) return c.json({ error: 'no_current_season' }, 409);
 
   const url = new URL(c.req.url);
-  const from = Number(url.searchParams.get('from') ?? season.starts_at);
-  const to = Number(url.searchParams.get('to') ?? season.ends_at);
+  /**
+   * `from`/`to` are optional filters, NOT defaults.
+   *
+   * They used to default to the season's own start and end, which quietly made
+   * this endpoint unable to return a meeting held outside that window — and
+   * August meetings are outside it, because `currentSeason()` starts the season
+   * on September 1. A coach could create a preseason meeting and then not find
+   * it anywhere, which is a worse failure than being unable to create one.
+   *
+   * Scoping by `season_id` is the correct filter and it is already applied
+   * below: a meeting belongs to a season because its row says so, not because
+   * its timestamp falls inside a date range.
+   */
+  const fromParam = url.searchParams.get('from');
+  const toParam = url.searchParams.get('to');
+  const from = fromParam === null ? null : Number(fromParam);
+  const to = toParam === null ? null : Number(toParam);
   const limit = Math.min(
     Number(url.searchParams.get('limit') ?? MAX_LIST_LIMIT) || MAX_LIST_LIMIT,
     MAX_LIST_LIMIT,
   );
   const status = url.searchParams.get('status');
 
-  if (!Number.isFinite(from) || !Number.isFinite(to)) {
+  if ((from !== null && !Number.isFinite(from)) || (to !== null && !Number.isFinite(to))) {
     return c.json({ error: 'invalid_range' }, 400);
   }
   if (status !== null && !isMeetingStatus(status)) {
@@ -137,14 +152,15 @@ meetings.get('/', requireMember, async (c) => {
        LEFT JOIN meeting_attendance a
          ON a.team_id = m.team_id AND a.meeting_id = m.id
             AND a.state IN ('present', 'late')
-      WHERE m.team_id = ? AND m.season_id = ?
-        AND m.starts_at >= ? AND m.starts_at <= ?
-        AND (? IS NULL OR m.status = ?)
+      WHERE m.team_id = ?1 AND m.season_id = ?2
+        AND (?3 IS NULL OR m.starts_at >= ?3)
+        AND (?4 IS NULL OR m.starts_at <= ?4)
+        AND (?5 IS NULL OR m.status = ?5)
       GROUP BY m.id
       ORDER BY m.starts_at ASC
-      LIMIT ?`,
+      LIMIT ?6`,
   )
-    .bind(teamId, season.id, from, to, status, status, limit)
+    .bind(teamId, season.id, from, to, status, limit)
     .all();
 
   return c.json({ meetings: results });
