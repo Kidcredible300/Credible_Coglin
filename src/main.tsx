@@ -8,6 +8,9 @@ import Dashboard from '@/routes/Dashboard';
 import Boards from '@/routes/Boards';
 import Roster from '@/routes/Roster';
 import Outreach from '@/routes/Outreach';
+import Meetings from '@/routes/Meetings';
+import Meeting from '@/routes/Meeting';
+import Portfolio from '@/routes/Portfolio';
 import Placeholder from '@/routes/Placeholder';
 import Debug from '@/routes/Debug';
 import Login from '@/routes/Login';
@@ -78,10 +81,14 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/outreach" element={<Outreach />} />
             <Route path="/roster" element={<Roster />} />
             <Route path="/awards" element={<Placeholder />} />
-            <Route path="/portfolio" element={<Placeholder />} />
+            <Route path="/portfolio" element={<Portfolio />} />
             <Route path="/calendar" element={<Placeholder />} />
             <Route path="/budget" element={<Placeholder />} />
-            <Route path="/meetings" element={<Placeholder />} />
+            <Route path="/meetings" element={<Meetings />} />
+            {/* The app's first nested route. AppShell resolves its nav label by
+                prefix for this reason — an exact match leaves the mobile title
+                bar saying "Coglin" on the screen a student takes notes on. */}
+            <Route path="/meetings/:meetingId" element={<Meeting />} />
             <Route path="/debug" element={<Debug />} />
             {/* Any unknown path still renders the shell, which keeps the
                 not_found_handling SPA-fallback check meaningful. */}

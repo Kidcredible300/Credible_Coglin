@@ -11,6 +11,20 @@ import { cn } from '@/lib/utils';
 const PRIMARY = NAV.filter((n) => n.primary);
 
 /**
+ * The nav entry a path belongs to, matching by prefix rather than equality.
+ *
+ * Meetings introduced the app's first nested route. With an exact match
+ * `/meetings/<id>` matches nothing, so a student taking notes on a phone sees
+ * the shell titled "Coglin" — no error, just a screen that has forgotten what
+ * it is. `/` is special-cased because every path starts with it.
+ */
+function navItemFor(pathname: string) {
+  return NAV.find((n) =>
+    n.to === '/' ? pathname === '/' : pathname === n.to || pathname.startsWith(`${n.to}/`),
+  );
+}
+
+/**
  * Sidebar at ≥768px, bottom tab bar below.
  *
  * Mobile is built here from the start rather than retrofitted: COG-022 requires
@@ -20,7 +34,7 @@ const PRIMARY = NAV.filter((n) => n.primary);
 export function AppShell() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const location = useLocation();
-  const current = NAV.find((n) => n.to === location.pathname);
+  const current = navItemFor(location.pathname);
   const { team } = useSession();
 
   return (
@@ -95,7 +109,14 @@ export function AppShell() {
         <Outlet />
       </main>
 
-      {/* ---------- Mobile tab bar ---------- */}
+      {/* ---------- Mobile tab bar ----------
+          grid-cols-4 is load-bearing and matches PRIMARY exactly. A fifth
+          primary nav item does not overflow this bar, it WRAPS to a second row
+          — and <main>'s pb-20 is sized for one 56px row, so the extra row would
+          silently sit on top of the bottom of every screen. If a fifth is ever
+          needed, drive the column count from PRIMARY.length through a CSS
+          variable rather than interpolating the class name, which Tailwind
+          cannot see and will not emit. */}
       <nav
         className="bg-background/95 border-border fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t backdrop-blur md:hidden"
         aria-label="Primary"

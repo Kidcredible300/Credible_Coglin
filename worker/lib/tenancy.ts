@@ -108,6 +108,31 @@ export function requireRole(...roles: Role[]): MiddlewareHandler<AppEnv> {
   };
 }
 
+/**
+ * The inverse gate: everyone on the team except the listed roles.
+ *
+ * Exists because `requireRole('coach','mentor','student')` is the wrong way to
+ * write "anyone who is actually on this team". Meetings add roughly thirty such
+ * routes — taking notes, flagging a paragraph, adding an action item — and
+ * spelling each one as a positive list means that the day a fifth role is added
+ * it is silently denied everywhere, with no error and no test failure. Naming
+ * the exclusion instead makes the new role default to *included*, which is the
+ * safer direction to be wrong in for a collaboration surface.
+ *
+ * Viewers are the exclusion in practice: a viewer is a parent or a sponsor, and
+ * an outsider should not be editing the team's notes or nominating content into
+ * their award submission.
+ */
+export function denyRole(...roles: Role[]): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const { member } = auth(c);
+    if (roles.includes(member.role)) {
+      return c.json({ error: 'forbidden' }, 403);
+    }
+    await next();
+  };
+}
+
 /** Typed accessor, so handlers never reach for `c.get('auth')!` themselves. */
 export function auth(c: Context<AppEnv>): AuthContext {
   return c.get('auth');

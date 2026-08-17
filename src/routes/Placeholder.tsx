@@ -10,14 +10,10 @@ import { PageHeader } from '@/components/PageHeader';
 const NOTES: Record<string, string> = {
   '/awards':
     'Per-award criteria checklists from the Competition Manual §6, each item linked to evidence, with the Inspire triad view.',
-  '/portfolio':
-    'The 15-page budget: page-by-page outline, owner, status, and evidence pulled from the rest of the system.',
   '/calendar':
     'League meets, qualifiers, the portfolio print deadline, and the FIRST Leadership nomination window.',
   '/budget':
     'Income and expense lines, sponsor tiers and thank-you status — the progress tracking Sustain requires.',
-  '/meetings':
-    'Recurring schedule, agendas, and structured notes whose action items become board tasks.',
 };
 
 export default function Placeholder() {

@@ -37,9 +37,43 @@ describe('nightly backup', () => {
         team_number: 607,
         name: 'Dragon Slayers',
         region: 'NY',
+        timezone: 'America/New_York',
         created_at: now,
       },
     ]);
+  });
+
+  it('picks up new tables without anyone remembering to add them', async () => {
+    // runBackup reads sqlite_master rather than a hardcoded list, so a
+    // migration that adds a table is covered the same night it lands. This is
+    // the assertion that proves it, because the failure mode is silent: a
+    // restore that quietly omits a season's meeting notes looks like a
+    // successful backup right up until it is needed.
+    const key = await runBackup(env, new Date('2026-09-23T07:00:00Z'));
+    const dump = JSON.parse(await (await env.MEDIA.get(key))!.text()) as {
+      tables: Record<string, unknown[]>;
+    };
+
+    expect(Object.keys(dump.tables)).toEqual(
+      expect.arrayContaining([
+        'meeting_series',
+        'meeting_agenda_items',
+        'meeting_note_blocks',
+        'meeting_attendance',
+        'meeting_action_items',
+        'portfolio_candidates',
+      ]),
+    );
+  });
+
+  it('never carries image bytes, which belong in R2', async () => {
+    // The machine-enforced half of "images live in R2, not D1". Storing a
+    // pasted photo as a data URL would work in the editor and then quietly
+    // multiply the size of every nightly dump by the size of a phone camera
+    // roll — and the backup is the last place anyone looks.
+    const key = await runBackup(env, new Date('2026-09-24T07:00:00Z'));
+    const raw = await (await env.MEDIA.get(key))!.text();
+    expect(raw).not.toContain('data:image');
   });
 
   it('includes the migration ledger, so a restore knows where it stands', async () => {

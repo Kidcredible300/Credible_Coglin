@@ -2,8 +2,12 @@ import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import worker from '../index';
 import { currentSeason } from './auth';
+import { ORIGIN, call, sessionCookie, signUpCoach } from './_helpers';
 
-const ORIGIN = 'http://coglin.test';
+// The Resend seam stays local to this file rather than moving to _helpers: the
+// invite tests assert on all three outcomes (accepted, rejected, transport
+// failure), and the shared stub only needs to keep other suites off the
+// network.
 
 /**
  * Invite mail goes to Resend over plain fetch, so the seam these tests hold is
@@ -46,49 +50,6 @@ beforeEach(() => {
   resendMode = 'ok';
   resendCalls = [];
 });
-
-async function call(
-  path: string,
-  init: RequestInit & { cookie?: string } = {},
-): Promise<Response> {
-  const headers = new Headers(init.headers);
-  headers.set('Origin', ORIGIN);
-  if (init.body) headers.set('Content-Type', 'application/json');
-  if (init.cookie) headers.set('Cookie', init.cookie);
-
-  const request = new Request(`${ORIGIN}${path}`, { ...init, headers });
-  const ctx = createExecutionContext();
-  const response = await worker.fetch(request, env, ctx);
-  await waitOnExecutionContext(ctx);
-  return response;
-}
-
-/** The `coglin_session=...` pair from a Set-Cookie header, ready to send back. */
-function sessionCookie(response: Response): string {
-  const raw = response.headers.get('Set-Cookie');
-  if (!raw) throw new Error('expected a Set-Cookie header');
-  return raw.split(';')[0];
-}
-
-async function signUpCoach(
-  teamNumber: number,
-  overrides: Record<string, unknown> = {},
-): Promise<string> {
-  const response = await call('/api/auth/coach-signup', {
-    method: 'POST',
-    body: JSON.stringify({
-      code: env.ALPHA_SIGNUP_CODE,
-      email: `coach${teamNumber}@example.com`,
-      password: 'correct horse battery',
-      display_name: `Coach ${teamNumber}`,
-      team_number: teamNumber,
-      team_name: `Team ${teamNumber}`,
-      ...overrides,
-    }),
-  });
-  expect(response.status).toBe(201);
-  return sessionCookie(response);
-}
 
 describe('coach signup', () => {
   it('creates the team, season and coach membership, and signs the coach in', async () => {

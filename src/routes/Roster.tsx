@@ -3,7 +3,7 @@ import * as api from '@/lib/api';
 import { useAsync } from '@/lib/useAsync';
 import { useSession } from '@/lib/session';
 import { InviteDialog } from '@/components/InviteDialog';
-import { initials } from '@/lib/format';
+import { RosterPhoto } from '@/components/RosterPhoto';
 import { PageHeader } from '@/components/PageHeader';
 import { Skeleton } from '@/components/Skeleton';
 import { SUB_TEAMS, type Member, type Role } from '@/types';
@@ -47,6 +47,19 @@ export default function Roster() {
           <Count n={adults.length} label="Coaches & mentors" />
         </div>
 
+        {/* The wording for the shield icon on each row. Coaches only, because a
+            student cannot act on it and does not need to read a paragraph about
+            consent paperwork to look up a teammate's handle. */}
+        {canInvite && (
+          <p className="text-muted-foreground max-w-2xl text-xs">
+            Photos help put faces to names in September. Coglin will not hold a
+            student&rsquo;s photo until you confirm their signed{' '}
+            <i>FIRST</i> Consent and Release is on file — that is what the shield
+            button records. Photos are visible to the team only, never to viewers,
+            and are deleted when a member leaves the roster.
+          </p>
+        )}
+
         {members.status === 'loading' && <Skeleton className="h-48" />}
 
         {adults.length > 0 && (
@@ -54,7 +67,12 @@ export default function Roster() {
             <h2 className="u-eyebrow mb-3">Coaches & mentors</h2>
             <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {adults.map((m) => (
-                <MemberRow key={m.id} member={m} />
+                <MemberRow
+                  key={m.id}
+                  member={m}
+                  canManage={canInvite}
+                  onChanged={() => setReloadKey((k) => k + 1)}
+                />
               ))}
             </ul>
           </section>
@@ -74,7 +92,12 @@ export default function Roster() {
               </h2>
               <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {group.map((m) => (
-                  <MemberRow key={m.id} member={m} />
+                  <MemberRow
+                  key={m.id}
+                  member={m}
+                  canManage={canInvite}
+                  onChanged={() => setReloadKey((k) => k + 1)}
+                />
                 ))}
               </ul>
             </section>
@@ -105,12 +128,22 @@ function Count({
   );
 }
 
-function MemberRow({ member }: { member: Member }) {
+function MemberRow({
+  member,
+  canManage,
+  onChanged,
+}: {
+  member: Member;
+  canManage: boolean;
+  onChanged: () => void;
+}) {
   return (
     <li className="bg-card border-border flex items-center gap-3 rounded-lg border px-3 py-2.5">
-      <span className="bg-muted text-muted-foreground inline-flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-medium">
-        {initials(member.display_name)}
-      </span>
+      {/* Photos exist so a coach can put faces to names in September. The
+          consent gate lives inside this component, because the point at which
+          somebody reaches for a camera is the point at which they should be
+          asked whether the signed form is on file. */}
+      <RosterPhoto member={member} canManage={canManage} onChanged={onChanged} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">
           {member.display_name}

@@ -2,6 +2,13 @@ import { Hono } from 'hono';
 import { auth } from './routes/auth';
 import { invites } from './routes/invites';
 import { team } from './routes/team';
+import { boards } from './routes/boards';
+import { candidates } from './routes/candidates';
+import { media, mediaFiles } from './routes/media';
+import { meetings } from './routes/meetings';
+import { notes } from './routes/notes';
+import { records } from './routes/records';
+import { series } from './routes/series';
 import { scheduled } from './backup';
 import type { AppEnv } from './lib/tenancy';
 
@@ -62,9 +69,27 @@ app.get('/api/health', async (c) => {
 
 app.route('/api/auth', auth);
 app.route('/api/invites', invites);
+// `notes` is mounted first because it claims the deeper paths under a meeting
+// (/:id/blocks, /:id/agenda); `meetings` owns /:id itself.
+app.route('/api/meetings', notes);
+app.route('/api/meetings', meetings);
+app.route('/api/series', series);
+app.route('/api/portfolio', candidates);
+app.route('/api/media', media);
+// Both declare full paths ('/boards', '/meetings/:id/attendance') rather than a
+// prefix, so they mount at /api alongside `team`.
+app.route('/api', boards);
+app.route('/api', records);
+// Mounted last of the /api routes because `team` declares bare paths ('/team',
+// '/members') rather than a prefix, so it would otherwise shadow siblings.
 app.route('/api', team);
 
 app.all('/api/*', (c) => c.json({ error: 'not_found' }, 404));
+
+// Image bytes, mounted OUTSIDE /api on purpose: the no-store middleware above
+// would otherwise make every photo a fresh round trip forever. wrangler.jsonc
+// already reserves /media/* in run_worker_first on all three environments.
+app.route('/media', mediaFiles);
 
 // Exported as an object rather than the Hono app itself, because the Worker now
 // has a second entry point: the nightly backup cron (COG-040).
