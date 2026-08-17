@@ -17,6 +17,7 @@ import {
 
 export type MeetingKind =
   | 'build'
+  | 'general'
   | 'outreach'
   | 'design_review'
   | 'business'
