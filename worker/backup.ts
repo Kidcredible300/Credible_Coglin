@@ -15,6 +15,7 @@
  * not because JSON is wrong, but because a whole-database read on a cron is.
  */
 import type { Bindings } from './types';
+import { purgeRetiredRosterPhotos } from './routes/media';
 
 /** Kept in R2 before the oldest is dropped. A month covers "we noticed at the
  *  next competition" without being an unbounded bill. */
@@ -93,6 +94,32 @@ export const scheduled: ExportedHandlerScheduledHandler<Bindings> = (
         // Rethrow so the failure shows as a failed cron invocation in the
         // dashboard instead of a silent success. A backup that quietly stopped
         // running is the worst version of this feature.
+        throw err;
+      }),
+  );
+
+  /**
+   * Retention, run on the same schedule but as its own promise.
+   *
+   * Deliberately NOT chained to the backup: a failed dump must not mean a
+   * child's photograph outlives the rule that says it should be deleted, and a
+   * failed purge must not stop the backup being written. They fail
+   * independently because they protect against different things.
+   *
+   * The purge runs AFTER the dump in wall-clock terms only by coincidence, and
+   * that is fine — a photo appearing in one final backup is bounded by the
+   * 30-day retention on the dumps themselves.
+   */
+  ctx.waitUntil(
+    purgeRetiredRosterPhotos(env)
+      .then((n) => {
+        if (n > 0) console.log(`roster photos purged for retired members: ${n}`);
+      })
+      .catch((err) => {
+        console.error(
+          'roster photo purge failed:',
+          err instanceof Error ? err.message : String(err),
+        );
         throw err;
       }),
   );

@@ -25,7 +25,14 @@ export type MeetingKind =
   | 'other';
 
 export type MeetingStatus = 'planned' | 'held' | 'cancelled';
-export type AttendanceState = 'present' | 'late' | 'excused' | 'absent';
+
+/**
+ * The disposition only. Whether somebody turned up late or ducked out early are
+ * separate marks (`arrived_late`, `left_early`) rather than states, because they
+ * co-occur — "twenty minutes late and gone before the end" is one student on one
+ * evening, and an enum forces a lie about which half mattered.
+ */
+export type AttendanceState = 'present' | 'absent' | 'excused';
 export type BlockKind =
   | 'heading'
   | 'paragraph'
@@ -61,12 +68,7 @@ const MEETING_KINDS: readonly MeetingKind[] = [
   'other',
 ];
 const MEETING_STATUSES: readonly MeetingStatus[] = ['planned', 'held', 'cancelled'];
-const ATTENDANCE_STATES: readonly AttendanceState[] = [
-  'present',
-  'late',
-  'excused',
-  'absent',
-];
+const ATTENDANCE_STATES: readonly AttendanceState[] = ['present', 'absent', 'excused'];
 const BLOCK_KINDS: readonly BlockKind[] = [
   'heading',
   'paragraph',

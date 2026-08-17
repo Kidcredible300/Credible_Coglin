@@ -50,8 +50,14 @@ async function sourceExists(
   type: CandidateSourceType,
   id: string,
 ): Promise<boolean> {
+  // A student's face is not award evidence. Roster photos are refused as
+  // candidates rather than filtered out of the inbox afterwards, so a
+  // portfolio can never come to contain one by way of a guessed media id.
+  const extra = type === 'media' ? " AND kind <> 'roster_photo'" : '';
   const row = await db
-    .prepare(`SELECT id FROM ${SOURCE_TABLES[type]} WHERE id = ? AND team_id = ?`)
+    .prepare(
+      `SELECT id FROM ${SOURCE_TABLES[type]} WHERE id = ? AND team_id = ?${extra}`,
+    )
     .bind(id, teamId)
     .first();
   return row !== null;

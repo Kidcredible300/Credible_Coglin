@@ -121,6 +121,38 @@ describe('meetings CRUD', () => {
     }
   });
 
+  it('carries the attendance timing marks, which the roll seeds itself from', async () => {
+    // Regression: this projection once omitted arrived_late and left_early. The
+    // save worked and the season rollup was right, so the only visible symptom
+    // was both marks quietly vanishing whenever anybody reloaded the meeting.
+    const cookie = await signUpCoach(4106);
+    const meeting = await createMeeting(cookie, {
+      starts_at: (await seasonStart(cookie)) + 7 * 86400,
+    });
+    const me = await whoami(cookie);
+
+    await callJson(`/api/meetings/${meeting.id}/attendance`, {
+      method: 'PUT',
+      cookie,
+      body: JSON.stringify({
+        entries: [
+          {
+            member_id: me.member_id,
+            state: 'present',
+            arrived_late: true,
+            left_early: true,
+          },
+        ],
+      }),
+    });
+
+    const { body } = await callJson<{
+      attendance: { arrived_late: number; left_early: number }[];
+    }>(`/api/meetings/${meeting.id}`, { cookie });
+    expect(body.attendance[0].arrived_late).toBe(1);
+    expect(body.attendance[0].left_early).toBe(1);
+  });
+
   it('returns every section of a meeting in one read', async () => {
     const cookie = await signUpCoach(4103);
     const meeting = await createMeeting(cookie, {

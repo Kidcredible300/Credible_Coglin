@@ -18,7 +18,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { NoteEditor } from '@/components/notes/NoteEditor';
-import { MEETING_KINDS } from '@/types';
+import { AttendancePanel } from '@/components/meetings/AttendancePanel';
+import { MEETING_KINDS, type AttendanceRecord } from '@/types';
 
 const KIND_LABEL = new Map(MEETING_KINDS.map((k) => [k.id, k.label]));
 
@@ -72,6 +73,7 @@ export default function Meeting() {
     () => api.getMeeting(meetingId as string),
     [meetingId, reloadKey],
   );
+  const members = useAsync(api.listMembers);
   const { member } = useSession();
   const canEdit = member.role !== 'viewer';
   const canManage = member.role === 'coach' || member.role === 'mentor';
@@ -223,6 +225,7 @@ export default function Meeting() {
   }
 
   const { meeting, agenda } = detail.data;
+  const attendance = detail.data.attendance as AttendanceRecord[];
   const cancelled = meeting.status === 'cancelled';
   const started = meeting.started_at !== null;
   const flaggedCount = flaggedIds.size + (wholeFlagged ? 1 : 0);
@@ -368,6 +371,20 @@ export default function Meeting() {
             </ul>
           </section>
         )}
+
+        <section>
+          <h2 className="u-eyebrow mb-3">Who was here</h2>
+          {members.data && (
+            <AttendancePanel
+              meetingId={meeting.id}
+              members={members.data}
+              attendance={attendance}
+              canRecord={canManage}
+              selfMemberId={member.id}
+              onSaved={() => setReloadKey((k) => k + 1)}
+            />
+          )}
+        </section>
 
         <section>
           <div className="mb-3 flex items-center justify-between gap-3">

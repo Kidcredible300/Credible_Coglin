@@ -32,6 +32,8 @@
  */
 import type {
   AgendaItem,
+  AttendanceRecord,
+  AttendanceState,
   AwardCriterion,
   AwardKey,
   Board,
@@ -590,17 +592,27 @@ export function promoteActionItem(
 
 export function putAttendance(
   meetingId: string,
-  entries: { member_id: string; state: string | null; minutes?: number; note?: string }[],
-): Promise<{ attendance: unknown[] }> {
+  entries: {
+    member_id: string;
+    /** null clears the entry rather than recording an absence. */
+    state: AttendanceState | null;
+    arrived_late?: boolean;
+    left_early?: boolean;
+    minutes?: number;
+    note?: string;
+  }[],
+): Promise<{ attendance: AttendanceRecord[] }> {
   return send(`/api/meetings/${meetingId}/attendance`, 'PUT', { entries });
 }
 
 /** Check yourself in. The server ignores any member id in the body. */
 export function checkInSelf(
   meetingId: string,
-  state: 'present' | 'late' = 'present',
-): Promise<{ ok: true; member_id: string }> {
-  return send(`/api/meetings/${meetingId}/attendance/self`, 'POST', { state });
+  arrivedLate = false,
+): Promise<{ ok: true; member_id: string; arrived_late: boolean }> {
+  return send(`/api/meetings/${meetingId}/attendance/self`, 'POST', {
+    arrived_late: arrivedLate,
+  });
 }
 
 export function attendanceSummary(): Promise<{
@@ -609,12 +621,36 @@ export function attendanceSummary(): Promise<{
     member_id: string;
     display_name: string;
     present: number;
-    late: number;
     excused: number;
     absent: number;
+    arrived_late: number;
+    left_early: number;
+    minutes: number;
   }[];
 }> {
   return get('/api/attendance/summary');
+}
+
+// -------------------------------------------------------------- roster photos
+
+/**
+ * Record that the signed FIRST Consent and Release is on file for this student.
+ *
+ * Coglin cannot obtain verifiable parental consent and does not pretend to — a
+ * named coach attests, at a known time, that the real paper form exists. The
+ * upload below refuses until this has been called.
+ */
+export function recordPhotoConsent(memberId: string): Promise<{ ok: true }> {
+  return send(`/api/members/${memberId}/photo-consent`, 'POST');
+}
+
+/** Withdraw consent. Takes the photo down in the same call. */
+export function withdrawPhotoConsent(memberId: string): Promise<{ ok: true }> {
+  return send(`/api/members/${memberId}/photo-consent`, 'DELETE');
+}
+
+export function deleteMemberPhoto(memberId: string): Promise<{ ok: true }> {
+  return send(`/api/members/${memberId}/photo`, 'DELETE');
 }
 
 // --------------------------------------------------------------------------

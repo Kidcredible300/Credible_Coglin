@@ -63,13 +63,45 @@ export interface Season {
 export interface Member {
   id: string;
   team_id: string;
-  user_id: string;
   role: Role;
   sub_teams: SubTeam[];
   display_name: string;
   handle: string | null;
   status: string;
+  /**
+   * Null when there is no photo, and always null for a viewer — a sponsor is
+   * not handed pictures of other people's children. See 0004_roster_photos.sql.
+   */
+  photo_media_id: string | null;
+  /**
+   * Whether a coach has recorded that the signed FIRST Consent and Release is
+   * on file. A photo cannot be attached until it is true. Deliberately a
+   * boolean rather than the timestamp: the roster needs to know whether it may
+   * hold a photo, not to publish when a form was signed.
+   */
+  photo_consent: boolean;
   created_at: number;
+}
+
+/**
+ * One student on one evening.
+ *
+ * `state` is the disposition; late and early are separate marks because they
+ * co-occur. `minutes` is time actually in the room, which is what the Sustain
+ * hours arithmetic wants.
+ */
+export type AttendanceState = 'present' | 'absent' | 'excused';
+
+export interface AttendanceRecord {
+  id: string;
+  member_id: string;
+  state: AttendanceState;
+  arrived_late: number;
+  left_early: number;
+  minutes: number | null;
+  note: string | null;
+  recorded_by: string | null;
+  recorded_at: number;
 }
 
 export interface Board {

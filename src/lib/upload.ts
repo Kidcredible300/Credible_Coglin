@@ -40,7 +40,7 @@ export class UnsupportedImage extends Error {
  * the student, no browser can decode it, and silently uploading it would store
  * something that renders as a broken image forever.
  */
-async function downscale(file: File): Promise<Blob> {
+export async function downscaleForUpload(file: File): Promise<Blob> {
   let bitmap: ImageBitmap;
   try {
     bitmap = await createImageBitmap(file);
@@ -76,6 +76,8 @@ async function downscale(file: File): Promise<Blob> {
 }
 
 const ERROR_COPY: Record<string, string> = {
+  photo_consent_required:
+    'Record that the signed consent form is on file before adding a photo.',
   file_too_large: 'That photo is too large, even after shrinking it.',
   unsupported_media_type: 'That is not an image Coglin can store. Try a JPEG or PNG.',
   quota_exceeded: 'This season has used all its photo storage. A coach can clear space.',
@@ -94,10 +96,16 @@ const ERROR_COPY: Record<string, string> = {
 export function uploadImage(
   file: File | Blob,
   onProgress?: (fraction: number) => void,
+  /**
+   * Roster photos post to a different endpoint — one that carries the consent
+   * check — but must go through exactly this preparation, or one of the two
+   * upload paths becomes the one that forgot to strip EXIF.
+   */
+  url = '/api/media',
 ): Promise<UploadedMedia> {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
-    request.open('POST', '/api/media');
+    request.open('POST', url);
     request.withCredentials = true;
     request.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
 
@@ -133,9 +141,10 @@ export function uploadImage(
 export async function prepareAndUpload(
   file: File,
   onProgress?: (fraction: number) => void,
+  url?: string,
 ): Promise<UploadedMedia> {
-  const blob = await downscale(file);
-  return uploadImage(blob, onProgress);
+  const blob = await downscaleForUpload(file);
+  return uploadImage(blob, onProgress, url);
 }
 
 /** Intrinsic size, so the editor can reserve the box before the upload lands. */

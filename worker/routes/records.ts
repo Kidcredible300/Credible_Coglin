@@ -36,9 +36,10 @@ const ACTION_COLUMNS = `id, meeting_id, block_id, text, assignee_member_id, due_
 records.get('/meetings/:id/attendance', requireMember, async (c) => {
   const { teamId } = authOf(c);
   const { results } = await c.env.DB.prepare(
-    `SELECT a.id AS id, a.member_id AS member_id, a.state AS state, a.minutes AS minutes,
-            a.note AS note, a.recorded_by AS recorded_by, a.recorded_at AS recorded_at,
-            m.display_name AS display_name
+    `SELECT a.id AS id, a.member_id AS member_id, a.state AS state,
+            a.arrived_late AS arrived_late, a.left_early AS left_early,
+            a.minutes AS minutes, a.note AS note, a.recorded_by AS recorded_by,
+            a.recorded_at AS recorded_at, m.display_name AS display_name
        FROM meeting_attendance a
        JOIN members m ON m.id = a.member_id AND m.team_id = a.team_id
       WHERE a.team_id = ? AND a.meeting_id = ?`,
@@ -107,17 +108,22 @@ records.put(
       statements.push(
         c.env.DB.prepare(
           `INSERT INTO meeting_attendance
-             (id, team_id, meeting_id, member_id, state, minutes, note, recorded_by, recorded_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, team_id, meeting_id, member_id, state, arrived_late, left_early,
+              minutes, note, recorded_by, recorded_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (team_id, meeting_id, member_id) DO UPDATE SET
-             state = excluded.state, minutes = excluded.minutes, note = excluded.note,
-             recorded_by = excluded.recorded_by, recorded_at = excluded.recorded_at`,
+             state = excluded.state, arrived_late = excluded.arrived_late,
+             left_early = excluded.left_early, minutes = excluded.minutes,
+             note = excluded.note, recorded_by = excluded.recorded_by,
+             recorded_at = excluded.recorded_at`,
         ).bind(
           uuid(),
           teamId,
           meetingId,
           memberId,
           entry.state,
+          entry.arrived_late ? 1 : 0,
+          entry.left_early ? 1 : 0,
           boundedInt(entry.minutes, 0, 1440),
           optionalString(entry.note, 500),
           member.id,
@@ -129,7 +135,8 @@ records.put(
     if (statements.length > 0) await c.env.DB.batch(statements);
 
     const { results } = await c.env.DB.prepare(
-      `SELECT id, member_id, state, minutes, note, recorded_by, recorded_at
+      `SELECT id, member_id, state, arrived_late, left_early, minutes, note,
+              recorded_by, recorded_at
          FROM meeting_attendance WHERE team_id = ? AND meeting_id = ?`,
     )
       .bind(teamId, meetingId)
@@ -152,10 +159,10 @@ records.post(
   denyRole('viewer'),
   async (c) => {
     const body = (await readJson(c)) ?? {};
-    const state = body.state === undefined ? 'present' : body.state;
-    if (state !== 'present' && state !== 'late') {
-      return c.json({ error: 'invalid_state' }, 400);
-    }
+    // A student checking in is always present. `arrived_late` is the honest way
+    // to say "I got here at 6:20" without pretending lateness is a different
+    // kind of attendance.
+    const arrivedLate = body.arrived_late ? 1 : 0;
 
     const { teamId, member } = authOf(c);
     const meetingId = c.req.param('id');
@@ -168,16 +175,21 @@ records.post(
 
     await c.env.DB.prepare(
       `INSERT INTO meeting_attendance
-         (id, team_id, meeting_id, member_id, state, recorded_by, recorded_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+         (id, team_id, meeting_id, member_id, state, arrived_late, recorded_by, recorded_at)
+       VALUES (?, ?, ?, ?, 'present', ?, ?, ?)
        ON CONFLICT (team_id, meeting_id, member_id) DO UPDATE SET
-         state = excluded.state, recorded_by = excluded.recorded_by,
-         recorded_at = excluded.recorded_at`,
+         state = 'present', arrived_late = excluded.arrived_late,
+         recorded_by = excluded.recorded_by, recorded_at = excluded.recorded_at`,
     )
-      .bind(uuid(), teamId, meetingId, member.id, state, member.id, nowSeconds())
+      .bind(uuid(), teamId, meetingId, member.id, arrivedLate, member.id, nowSeconds())
       .run();
 
-    return c.json({ ok: true, member_id: member.id, state });
+    return c.json({
+      ok: true,
+      member_id: member.id,
+      state: 'present',
+      arrived_late: arrivedLate === 1,
+    });
   },
 );
 
@@ -195,9 +207,11 @@ records.get('/attendance/summary', requireMember, async (c) => {
   const { results } = await c.env.DB.prepare(
     `SELECT m.id AS member_id, m.display_name AS display_name,
             SUM(CASE WHEN a.state = 'present' THEN 1 ELSE 0 END) AS present,
-            SUM(CASE WHEN a.state = 'late' THEN 1 ELSE 0 END) AS late,
             SUM(CASE WHEN a.state = 'excused' THEN 1 ELSE 0 END) AS excused,
-            SUM(CASE WHEN a.state = 'absent' THEN 1 ELSE 0 END) AS absent
+            SUM(CASE WHEN a.state = 'absent' THEN 1 ELSE 0 END) AS absent,
+            SUM(COALESCE(a.arrived_late, 0)) AS arrived_late,
+            SUM(COALESCE(a.left_early, 0)) AS left_early,
+            SUM(COALESCE(a.minutes, 0)) AS minutes
        FROM members m
        LEFT JOIN meeting_attendance a
          ON a.member_id = m.id AND a.team_id = m.team_id

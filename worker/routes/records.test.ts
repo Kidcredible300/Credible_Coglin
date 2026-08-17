@@ -37,7 +37,71 @@ describe('attendance', () => {
     });
 
     // A second coach marking only one person must not erase the other.
-    const second = await callJson<{ attendance: { member_id: string; state: string }[] }>(
+    const second = await callJson<{
+      attendance: { member_id: string; state: string; arrived_late: number }[];
+    }>(`/api/meetings/${meetingId}/attendance`, {
+      method: 'PUT',
+      cookie: coach,
+      body: JSON.stringify({
+        entries: [{ member_id: adaId, state: 'present', arrived_late: true }],
+      }),
+    });
+
+    const byMember = new Map(second.body.attendance.map((a) => [a.member_id, a]));
+    expect(byMember.get(adaId)?.state).toBe('present');
+    expect(byMember.get(adaId)?.arrived_late).toBe(1);
+    // Grace was not named in the second write and keeps her excusal.
+    expect(byMember.get(graceId)?.state).toBe('excused');
+  });
+
+  it('records arriving late AND leaving early on the same evening', async () => {
+    // The case the first cut of this schema could not express. A single enum
+    // with a `late` value forces a choice about which half of the evening
+    // mattered, and coaches track both because both are true.
+    const coach = await signUpCoach(8104);
+    const meetingId = await makeMeeting(coach);
+    const ada = await inviteAndAccept(coach, { role: 'student', handle: 'halfway' });
+    const adaId = (await whoami(ada.cookie)).member_id;
+
+    const { body } = await callJson<{
+      attendance: {
+        member_id: string;
+        state: string;
+        arrived_late: number;
+        left_early: number;
+        minutes: number | null;
+      }[];
+    }>(`/api/meetings/${meetingId}/attendance`, {
+      method: 'PUT',
+      cookie: coach,
+      body: JSON.stringify({
+        entries: [
+          {
+            member_id: adaId,
+            state: 'present',
+            arrived_late: true,
+            left_early: true,
+            minutes: 70,
+          },
+        ],
+      }),
+    });
+
+    const row = body.attendance.find((a) => a.member_id === adaId);
+    expect(row?.state).toBe('present');
+    expect(row?.arrived_late).toBe(1);
+    expect(row?.left_early).toBe(1);
+    // The time actually in the room, which is what the Sustain hours want.
+    expect(row?.minutes).toBe(70);
+  });
+
+  it('no longer accepts late as a state', async () => {
+    const coach = await signUpCoach(8105);
+    const meetingId = await makeMeeting(coach);
+    const ada = await inviteAndAccept(coach, { role: 'student', handle: 'notastate' });
+    const adaId = (await whoami(ada.cookie)).member_id;
+
+    const { status, body } = await callJson<{ error: string }>(
       `/api/meetings/${meetingId}/attendance`,
       {
         method: 'PUT',
@@ -45,10 +109,8 @@ describe('attendance', () => {
         body: JSON.stringify({ entries: [{ member_id: adaId, state: 'late' }] }),
       },
     );
-
-    const byMember = new Map(second.body.attendance.map((a) => [a.member_id, a.state]));
-    expect(byMember.get(adaId)).toBe('late');
-    expect(byMember.get(graceId)).toBe('excused');
+    expect(status).toBe(400);
+    expect(body.error).toBe('invalid_state');
   });
 
   it('lets a student check in only themselves', async () => {
@@ -66,7 +128,7 @@ describe('attendance', () => {
       {
         method: 'POST',
         cookie: ada.cookie,
-        body: JSON.stringify({ state: 'present', member_id: graceId }),
+        body: JSON.stringify({ arrived_late: true, member_id: graceId }),
       },
     );
     expect(response.status).toBe(200);
@@ -109,11 +171,19 @@ describe('attendance', () => {
     }
 
     const { body } = await callJson<{
-      members: { member_id: string; present: number; excused: number }[];
+      members: {
+        member_id: string;
+        present: number;
+        excused: number;
+        arrived_late: number;
+        minutes: number;
+      }[];
     }>('/api/attendance/summary', { cookie: coach });
     const ada3 = body.members.find((m) => m.member_id === adaId);
     expect(ada3?.present).toBe(2);
     expect(ada3?.excused).toBe(1);
+    // The marks roll up alongside the states rather than competing with them.
+    expect(ada3?.arrived_late).toBe(0);
   });
 });
 

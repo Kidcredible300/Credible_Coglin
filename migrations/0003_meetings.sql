@@ -202,19 +202,29 @@ CREATE INDEX idx_meeting_blocks_media
 -- `excused` is exactly the distinction a Sustain narrative needs, which a list
 -- of member ids cannot hold.
 --
+-- STATE AND THE TIMING FLAGS ARE SEPARATE, because they are separate facts. The
+-- first cut of this had a single enum including `late`, which cannot express
+-- "turned up twenty minutes in and left before the end" — and that is a normal
+-- Tuesday, not an edge case. Coaches already track it as independent marks on a
+-- spreadsheet, so the schema tracks it that way too: `state` is the disposition,
+-- `arrived_late` and `left_early` are marks on top of it, and `minutes` is the
+-- time actually in the room, which is what the Sustain hours arithmetic wants.
+--
 -- member_id CASCADEs rather than SET NULL: members are retired by flipping
 -- `status`, so an actual DELETE means "erase this person", and their attendance
 -- must go with them.
 CREATE TABLE meeting_attendance (
-  id          TEXT PRIMARY KEY,
-  team_id     TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-  meeting_id  TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
-  member_id   TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
-  state       TEXT NOT NULL DEFAULT 'present',  -- present | late | excused | absent
-  minutes     INTEGER,
-  note        TEXT,
-  recorded_by TEXT REFERENCES members(id) ON DELETE SET NULL,
-  recorded_at INTEGER NOT NULL
+  id           TEXT PRIMARY KEY,
+  team_id      TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  meeting_id   TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  member_id    TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  state        TEXT NOT NULL DEFAULT 'present',  -- present | absent | excused
+  arrived_late INTEGER NOT NULL DEFAULT 0,
+  left_early   INTEGER NOT NULL DEFAULT 0,
+  minutes      INTEGER,
+  note         TEXT,
+  recorded_by  TEXT REFERENCES members(id) ON DELETE SET NULL,
+  recorded_at  INTEGER NOT NULL
 );
 
 CREATE UNIQUE INDEX idx_attendance_unique

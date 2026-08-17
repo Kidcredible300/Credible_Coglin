@@ -251,7 +251,12 @@ meetings.get('/:id', requireMember, async (c) => {
         ORDER BY position ASC`,
     ).bind(teamId, id),
     c.env.DB.prepare(
-      `SELECT id, meeting_id, member_id, state, minutes, note, recorded_by, recorded_at
+      // arrived_late and left_early belong here, not only in the attendance
+      // route's own projection: the meeting screen seeds its roll from THIS
+      // response, so omitting them silently drops both marks on every reload
+      // while the save and the season rollup keep looking correct.
+      `SELECT id, meeting_id, member_id, state, arrived_late, left_early,
+              minutes, note, recorded_by, recorded_at
          FROM meeting_attendance
         WHERE team_id = ? AND meeting_id = ?`,
     ).bind(teamId, id),

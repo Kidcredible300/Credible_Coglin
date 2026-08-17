@@ -39,9 +39,165 @@ const media = new Hono<AppEnv>();
  * Per file. The client downscales to 2000px before uploading, so anything this
  * large is a client that failed to and a bill we would rather not pay.
  */
-const MAX_BYTES = 10 * 1024 * 1024;
+export const MAX_BYTES = 10 * 1024 * 1024;
 /** Per team per season. Roughly a thousand photos, which is a generous season. */
 const MAX_TEAM_BYTES = 2 * 1024 * 1024 * 1024;
+
+/**
+ * `photo` is anything in a meeting or the library. `roster_photo` is a picture
+ * of a student's face, which is treated differently everywhere it appears: kept
+ * out of the library, refused as portfolio evidence, withheld from viewers, and
+ * deleted when the member is no longer active. See 0004_roster_photos.sql.
+ */
+export type MediaKind = 'photo' | 'roster_photo';
+
+export interface IngestResult {
+  id: string;
+  content_type: string;
+  bytes: number;
+  width: number | null;
+  height: number | null;
+}
+
+/**
+ * Sniff, strip, measure, store.
+ *
+ * Shared by the meeting-notes upload and the roster-photo upload so there is
+ * exactly one place that decides what an acceptable image is — and, more to the
+ * point, exactly one place that strips EXIF. A second upload path that forgot to
+ * would be the whole GPS problem again, quietly.
+ */
+export async function ingestImage(
+  env: { DB: D1Database; MEDIA: R2Bucket },
+  input: {
+    teamId: string;
+    seasonId: string;
+    uploaderMemberId: string;
+    kind: MediaKind;
+  },
+  raw: Uint8Array,
+): Promise<IngestResult | { error: string; status: 400 | 413 | 415 | 507 }> {
+  if (raw.byteLength === 0) return { error: 'empty_body', status: 400 };
+  if (raw.byteLength > MAX_BYTES) return { error: 'file_too_large', status: 413 };
+
+  const sniffed = sniff(raw);
+  if (!sniffed || !ALLOWED_TYPES.includes(sniffed)) {
+    return { error: 'unsupported_media_type', status: 415 };
+  }
+
+  const usage = await env.DB.prepare(
+    'SELECT COALESCE(SUM(bytes), 0) AS used FROM media WHERE team_id = ? AND season_id = ?',
+  )
+    .bind(input.teamId, input.seasonId)
+    .first<{ used: number }>();
+  if ((usage?.used ?? 0) + raw.byteLength > MAX_TEAM_BYTES) {
+    return { error: 'quota_exceeded', status: 507 };
+  }
+
+  const cleaned = stripMetadata(raw, sniffed);
+  const size = dimensions(cleaned, sniffed);
+
+  const id = uuid();
+  const key = `teams/${input.teamId}/${input.seasonId}/${id}.${EXTENSIONS[sniffed]}`;
+
+  await env.MEDIA.put(key, cleaned, { httpMetadata: { contentType: sniffed } });
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO media
+         (id, team_id, season_id, r2_key, kind, bytes, width, height, caption,
+          tags, uploaded_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, '[]', ?, ?)`,
+    )
+      .bind(
+        id,
+        input.teamId,
+        input.seasonId,
+        key,
+        input.kind,
+        cleaned.byteLength,
+        size?.width ?? null,
+        size?.height ?? null,
+        input.uploaderMemberId,
+        nowSeconds(),
+      )
+      .run();
+  } catch (err) {
+    // Do not leave an orphan object paying rent in R2 for a row that does not
+    // exist. The reverse order — row first — would leave a media id that 404s.
+    await env.MEDIA.delete(key).catch(() => undefined);
+    throw err;
+  }
+
+  return {
+    id,
+    content_type: sniffed,
+    bytes: cleaned.byteLength,
+    width: size?.width ?? null,
+    height: size?.height ?? null,
+  };
+}
+
+/**
+ * Detach and destroy a roster photo: R2 object, media row, and the pointer.
+ *
+ * Shared by replace, delete, consent withdrawal and the nightly retention
+ * sweep, because a child's photograph is the one thing in this system that must
+ * actually be gone when it is supposed to be gone — not merely unreferenced.
+ * R2 first, so a failure leaves a row pointing at a missing object (which the
+ * read route reports) rather than an object nobody can find or delete.
+ */
+export async function deleteRosterPhoto(
+  env: { DB: D1Database; MEDIA: R2Bucket },
+  teamId: string,
+  memberId: string,
+  mediaId: string | null,
+): Promise<void> {
+  await env.DB.prepare(
+    'UPDATE members SET photo_media_id = NULL WHERE id = ? AND team_id = ?',
+  )
+    .bind(memberId, teamId)
+    .run();
+
+  if (!mediaId) return;
+
+  const row = await env.DB.prepare(
+    'SELECT r2_key FROM media WHERE id = ? AND team_id = ?',
+  )
+    .bind(mediaId, teamId)
+    .first<{ r2_key: string }>();
+  if (!row) return;
+
+  await env.MEDIA.delete(row.r2_key).catch(() => undefined);
+  await env.DB.prepare('DELETE FROM media WHERE id = ? AND team_id = ?')
+    .bind(mediaId, teamId)
+    .run();
+}
+
+/**
+ * The retention sweep, run nightly.
+ *
+ * `members.status <> 'active'` is the documented trigger for deleting a roster
+ * photo, and this exists because the trigger cannot be trusted to fire on its
+ * own: the realistic failure is a coach who never marks a graduated senior
+ * inactive, at which point "kept while the member is active" quietly becomes
+ * the indefinite retention the COPPA amendments prohibit. Sweeping means the
+ * rule holds even when nobody remembers to apply it.
+ */
+export async function purgeRetiredRosterPhotos(env: {
+  DB: D1Database;
+  MEDIA: R2Bucket;
+}): Promise<number> {
+  const { results } = await env.DB.prepare(
+    `SELECT id, team_id, photo_media_id FROM members
+      WHERE photo_media_id IS NOT NULL AND status <> 'active'`,
+  ).all<{ id: string; team_id: string; photo_media_id: string }>();
+
+  for (const row of results) {
+    await deleteRosterPhoto(env, row.team_id, row.id, row.photo_media_id);
+  }
+  return results.length;
+}
 
 // ------------------------------------------------------------------- upload
 
@@ -63,92 +219,47 @@ media.post('/', sameOriginOnly, requireMember, denyRole('viewer'), async (c) => 
     return c.json({ error: 'file_too_large', max_bytes: MAX_BYTES }, 413);
   }
 
-  const buffer = await c.req.arrayBuffer();
-  const raw = new Uint8Array(buffer);
-  if (raw.byteLength === 0) return c.json({ error: 'empty_body' }, 400);
-  if (raw.byteLength > MAX_BYTES) {
-    return c.json({ error: 'file_too_large', max_bytes: MAX_BYTES }, 413);
-  }
+  const raw = new Uint8Array(await c.req.arrayBuffer());
+  const result = await ingestImage(
+    c.env,
+    {
+      teamId,
+      seasonId: season.id,
+      uploaderMemberId: member.id,
+      kind: 'photo',
+    },
+    raw,
+  );
 
-  const sniffed = sniff(raw);
-  if (!sniffed || !ALLOWED_TYPES.includes(sniffed)) {
+  if ('error' in result) {
     // One code for "not an image" and "an image we do not accept". The client
     // maps it to copy naming the formats; the server does not owe a prober a
     // breakdown of what it recognised.
     return c.json(
-      { error: 'unsupported_media_type', allowed: ALLOWED_TYPES },
-      415,
+      { error: result.error, max_bytes: MAX_BYTES, allowed: ALLOWED_TYPES },
+      result.status,
     );
   }
 
-  const usage = await c.env.DB.prepare(
-    'SELECT COALESCE(SUM(bytes), 0) AS used FROM media WHERE team_id = ? AND season_id = ?',
-  )
-    .bind(teamId, season.id)
-    .first<{ used: number }>();
-  if ((usage?.used ?? 0) + raw.byteLength > MAX_TEAM_BYTES) {
-    return c.json({ error: 'quota_exceeded', max_bytes: MAX_TEAM_BYTES }, 507);
-  }
-
-  const cleaned = stripMetadata(raw, sniffed);
-  const size = dimensions(cleaned, sniffed);
-
-  const id = uuid();
-  // Both path segments are uuids rather than labels: a key must derive only
-  // from immutable identifiers, and `seasons.label` is user-editable text.
-  const key = `teams/${teamId}/${season.id}/${id}.${EXTENSIONS[sniffed]}`;
-  const now = nowSeconds();
-
-  await c.env.MEDIA.put(key, cleaned, {
-    httpMetadata: { contentType: sniffed },
-  });
-
-  try {
-    await c.env.DB.prepare(
-      `INSERT INTO media
-         (id, team_id, season_id, r2_key, kind, bytes, width, height, caption,
-          tags, uploaded_by, created_at)
-       VALUES (?, ?, ?, ?, 'photo', ?, ?, ?, NULL, '[]', ?, ?)`,
-    )
-      .bind(
-        id,
-        teamId,
-        season.id,
-        key,
-        cleaned.byteLength,
-        size?.width ?? null,
-        size?.height ?? null,
-        member.id,
-        now,
-      )
-      .run();
-  } catch (err) {
-    // Do not leave an orphan object paying rent in R2 for a row that does not
-    // exist. The reverse order — row first — would leave a media id that 404s.
-    await c.env.MEDIA.delete(key).catch(() => undefined);
-    throw err;
-  }
-
-  return c.json(
-    {
-      id,
-      url: `/media/${id}`,
-      content_type: sniffed,
-      bytes: cleaned.byteLength,
-      width: size?.width ?? null,
-      height: size?.height ?? null,
-    },
-    201,
-  );
+  return c.json({ ...result, url: `/media/${result.id}` }, 201);
 });
 
 // --------------------------------------------------------------------- list
 
+/**
+ * The team's library.
+ *
+ * Roster photos are excluded. They are pictures of students' faces attached to
+ * their roster rows, not team media — surfacing them in a browsable gallery
+ * would turn a "put faces to names" convenience into a directory of children.
+ */
 media.get('/', requireMember, async (c) => {
   const { teamId } = authOf(c);
   const { results } = await c.env.DB.prepare(
     `SELECT id, season_id, kind, bytes, width, height, caption, uploaded_by, created_at
-       FROM media WHERE team_id = ? ORDER BY created_at DESC LIMIT 200`,
+       FROM media
+      WHERE team_id = ? AND kind <> 'roster_photo'
+      ORDER BY created_at DESC LIMIT 200`,
   )
     .bind(teamId)
     .all();
@@ -183,7 +294,7 @@ export { media };
 const mediaFiles = new Hono<AppEnv>();
 
 mediaFiles.get('/:id', requireMember, async (c) => {
-  const { teamId } = authOf(c);
+  const { teamId, member } = authOf(c);
 
   // D1 first, always. R2 is never consulted with a key the tenancy check has
   // not already approved.
@@ -191,9 +302,17 @@ mediaFiles.get('/:id', requireMember, async (c) => {
     'SELECT r2_key, kind FROM media WHERE id = ? AND team_id = ?',
   )
     .bind(c.req.param('id'), teamId)
-    .first<{ r2_key: string }>();
+    .first<{ r2_key: string; kind: string }>();
   // 404 rather than 403: a 403 would confirm the object exists on another team.
   if (!row) return c.json({ error: 'not_found' }, 404);
+
+  // A viewer is a parent or a sponsor. They may see the team's work; they may
+  // not be handed pictures of other people's children. This has to live here
+  // rather than in the roster projection, because the projection only controls
+  // whether a URL is offered — not whether it resolves when guessed.
+  if (row.kind === 'roster_photo' && member.role === 'viewer') {
+    return c.json({ error: 'not_found' }, 404);
+  }
 
   const object = await c.env.MEDIA.get(row.r2_key, {
     onlyIf: c.req.raw.headers,
