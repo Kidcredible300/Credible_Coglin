@@ -21,15 +21,15 @@
      inkscape:pageopacity="0.0"
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
-     inkscape:zoom="1.179929"
-     inkscape:cx="411.04167"
-     inkscape:cy="1484.8351"
+     inkscape:zoom="0.14749113"
+     inkscape:cx="928.86945"
+     inkscape:cy="1810.2784"
      inkscape:window-width="2560"
      inkscape:window-height="1373"
      inkscape:window-x="0"
      inkscape:window-y="0"
      inkscape:window-maximized="1"
-     inkscape:current-layer="layer1" />
+     inkscape:current-layer="layer2" />
   <path
      d="M0 0 C550.77 0 1101.54 0 1669 0 C1669 651.09 1669 1302.18 1669 1973 C1118.23 1973 567.46 1973 0 1973 C0 1321.91 0 670.82 0 0 Z "
      fill="#FEFEFE"
@@ -57,13 +57,6 @@
      id="layer2"
      inkscape:label="Cog"
      style="display:inline">
-    <circle
-       style="display:none;fill:#f201e2;fill-opacity:1"
-       id="path15"
-       inkscape:label="Sizing Tool"
-       cx="941.48547"
-       cy="771"
-       r="515" />
     <path
        style="display:inline;fill:#132a49;fill-opacity:1;stroke-width:1.87319"
        id="path10-9"
