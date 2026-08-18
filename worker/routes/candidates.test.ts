@@ -12,38 +12,51 @@ interface Candidate {
   source_id: string;
   state: string;
   suggested_award: string | null;
-  preview?: { text?: string; kind?: string } | null;
+  preview?: { title?: string; excerpt?: string } | null;
   source_deleted?: boolean;
 }
 
-async function meetingWithBlock(
+async function meetingWithDoc(
   cookie: string,
-  text = 'a paragraph worth keeping',
-): Promise<{ meetingId: string; blockId: string }> {
+  text = 'a document worth keeping',
+): Promise<{ meetingId: string; docId: string }> {
   const season = await callJson<{ starts_at: number }>('/api/season/current', { cookie });
   const meeting = await callJson<{ meeting: { id: string } }>('/api/meetings', {
     method: 'POST',
     cookie,
     body: JSON.stringify({ starts_at: season.body.starts_at + 7 * 86400 }),
   });
-  const block = await callJson<{ block: { id: string } }>(
-    `/api/meetings/${meeting.body.meeting.id}/blocks`,
-    { method: 'POST', cookie, body: JSON.stringify({ text }) },
-  );
-  return { meetingId: meeting.body.meeting.id, blockId: block.body.block.id };
+  const meetingId = meeting.body.meeting.id;
+  const doc = await callJson<{ doc: { id: string } }>('/api/notes', {
+    method: 'POST',
+    cookie,
+    body: JSON.stringify({ meeting_id: meetingId, title: text }),
+  });
+  const docId = doc.body.doc.id;
+  await callJson(`/api/notes/${docId}/content`, {
+    method: 'PUT',
+    cookie,
+    body: JSON.stringify({
+      content: JSON.stringify({
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+      }),
+    }),
+  });
+  return { meetingId, docId };
 }
 
 describe('flagging', () => {
-  it('flags a paragraph and lists it with enough context to read later', async () => {
+  it('flags a document and lists it with enough context to read later', async () => {
     const cookie = await signUpCoach(6100);
-    const { meetingId, blockId } = await meetingWithBlock(cookie, 'We moved to a 4-bar');
+    const { docId } = await meetingWithDoc(cookie, 'We moved to a 4-bar');
 
     const flagged = await callJson<{ candidate: Candidate }>(
       '/api/portfolio/candidates',
       {
         method: 'POST',
         cookie,
-        body: JSON.stringify({ source_type: 'meeting_block', source_id: blockId }),
+        body: JSON.stringify({ source_type: 'note_doc', source_id: docId }),
       },
     );
     expect(flagged.status).toBe(201);
@@ -57,17 +70,16 @@ describe('flagging', () => {
     );
     expect(body.candidates).toHaveLength(1);
     // Hydrated, so the inbox does not have to open the meeting to be readable.
-    expect(body.candidates[0].preview?.text).toBe('We moved to a 4-bar');
+    expect(body.candidates[0].preview?.excerpt).toBe('We moved to a 4-bar');
     expect(body.candidates[0].source_deleted).toBe(false);
-    void meetingId;
   });
 
   it('is idempotent, so a double tap reads as "yes, it worked"', async () => {
     const cookie = await signUpCoach(6101);
-    const { blockId } = await meetingWithBlock(cookie);
+    const { docId } = await meetingWithDoc(cookie);
     const payload = JSON.stringify({
-      source_type: 'meeting_block',
-      source_id: blockId,
+      source_type: 'note_doc',
+      source_id: docId,
     });
 
     const first = await callJson<{ candidate: Candidate }>('/api/portfolio/candidates', {
@@ -94,15 +106,15 @@ describe('flagging', () => {
 
   it('unflags by source, without the client knowing the candidate id', async () => {
     const cookie = await signUpCoach(6102);
-    const { blockId } = await meetingWithBlock(cookie);
+    const { docId } = await meetingWithDoc(cookie);
     await call('/api/portfolio/candidates', {
       method: 'POST',
       cookie,
-      body: JSON.stringify({ source_type: 'meeting_block', source_id: blockId }),
+      body: JSON.stringify({ source_type: 'note_doc', source_id: docId }),
     });
 
     const removed = await call(
-      `/api/portfolio/candidates?source_type=meeting_block&source_id=${blockId}`,
+      `/api/portfolio/candidates?source_type=note_doc&source_id=${docId}`,
       { method: 'DELETE', cookie },
     );
     expect(removed.status).toBe(200);
@@ -118,11 +130,11 @@ describe('flagging', () => {
     // "an entry, single paragraph, picture, or whole page" — the page is the
     // meeting, and both live in the same inbox.
     const cookie = await signUpCoach(6103);
-    const { meetingId, blockId } = await meetingWithBlock(cookie);
+    const { meetingId, docId } = await meetingWithDoc(cookie);
 
     for (const [type, id] of [
       ['meeting', meetingId],
-      ['meeting_block', blockId],
+      ['note_doc', docId],
     ] as const) {
       const response = await call('/api/portfolio/candidates', {
         method: 'POST',
@@ -138,7 +150,7 @@ describe('flagging', () => {
     );
     expect(body.candidates.map((c) => c.source_type).sort()).toEqual([
       'meeting',
-      'meeting_block',
+      'note_doc',
     ]);
   });
 
@@ -150,7 +162,7 @@ describe('flagging', () => {
         method: 'POST',
         cookie,
         body: JSON.stringify({
-          source_type: 'meeting_block',
+          source_type: 'note_doc',
           source_id: crypto.randomUUID(),
         }),
       },
@@ -159,16 +171,16 @@ describe('flagging', () => {
     expect(body.error).toBe('source_not_found');
   });
 
-  it('keeps a flag listed when its block is deleted, and says so', async () => {
+  it('keeps a flag listed when its document is deleted, and says so', async () => {
     const cookie = await signUpCoach(6105);
-    const { meetingId, blockId } = await meetingWithBlock(cookie);
+    const { docId } = await meetingWithDoc(cookie);
     await call('/api/portfolio/candidates', {
       method: 'POST',
       cookie,
-      body: JSON.stringify({ source_type: 'meeting_block', source_id: blockId }),
+      body: JSON.stringify({ source_type: 'note_doc', source_id: docId }),
     });
 
-    await call(`/api/meetings/${meetingId}/blocks/${blockId}`, {
+    await call(`/api/notes/${docId}`, {
       method: 'DELETE',
       cookie,
     });
@@ -186,7 +198,7 @@ describe('flagging', () => {
 describe('triage', () => {
   it('lets a student shortlist and set aside, but not place on a page', async () => {
     const coach = await signUpCoach(6200);
-    const { blockId } = await meetingWithBlock(coach);
+    const { docId } = await meetingWithDoc(coach);
     const student = await inviteAndAccept(coach, { role: 'student', handle: 'triager' });
 
     const flagged = await callJson<{ candidate: Candidate }>(
@@ -194,7 +206,7 @@ describe('triage', () => {
       {
         method: 'POST',
         cookie: student.cookie,
-        body: JSON.stringify({ source_type: 'meeting_block', source_id: blockId }),
+        body: JSON.stringify({ source_type: 'note_doc', source_id: docId }),
       },
     );
     expect(flagged.status).toBe(201);
@@ -225,13 +237,13 @@ describe('triage', () => {
 
   it('does not unmark the source when something is set aside', async () => {
     const cookie = await signUpCoach(6201);
-    const { blockId } = await meetingWithBlock(cookie);
+    const { docId } = await meetingWithDoc(cookie);
     const flagged = await callJson<{ candidate: Candidate }>(
       '/api/portfolio/candidates',
       {
         method: 'POST',
         cookie,
-        body: JSON.stringify({ source_type: 'meeting_block', source_id: blockId }),
+        body: JSON.stringify({ source_type: 'note_doc', source_id: docId }),
       },
     );
 
@@ -245,22 +257,22 @@ describe('triage', () => {
     const row = await env.DB.prepare(
       'SELECT state FROM portfolio_candidates WHERE source_id = ?',
     )
-      .bind(blockId)
+      .bind(docId)
       .first<{ state: string }>();
     expect(row?.state).toBe('rejected');
   });
 
   it('rejects an unknown award key rather than storing it', async () => {
     const cookie = await signUpCoach(6202);
-    const { blockId } = await meetingWithBlock(cookie);
+    const { docId } = await meetingWithDoc(cookie);
     const { status, body } = await callJson<{ error: string }>(
       '/api/portfolio/candidates',
       {
         method: 'POST',
         cookie,
         body: JSON.stringify({
-          source_type: 'meeting_block',
-          source_id: blockId,
+          source_type: 'note_doc',
+          source_id: docId,
           suggested_award: 'best_robot',
         }),
       },
@@ -273,13 +285,13 @@ describe('triage', () => {
     // A viewer is a parent or a sponsor. An outsider should not be nominating
     // content into the team's award submission.
     const coach = await signUpCoach(6203);
-    const { blockId } = await meetingWithBlock(coach);
+    const { docId } = await meetingWithDoc(coach);
     const viewer = await inviteAndAccept(coach, { role: 'viewer', handle: 'sponsor' });
 
     const response = await call('/api/portfolio/candidates', {
       method: 'POST',
       cookie: viewer.cookie,
-      body: JSON.stringify({ source_type: 'meeting_block', source_id: blockId }),
+      body: JSON.stringify({ source_type: 'note_doc', source_id: docId }),
     });
     expect(response.status).toBe(403);
   });
@@ -310,15 +322,15 @@ describe('tenancy isolation', () => {
     const alpha = await signUpCoach(6400);
     const beta = await signUpCoach(6401);
 
-    const betaWork = await meetingWithBlock(beta, 'BETA-CANDIDATE-MARKER');
+    const betaWork = await meetingWithDoc(beta, 'BETA-CANDIDATE-MARKER');
     const betaFlag = await callJson<{ candidate: Candidate }>(
       '/api/portfolio/candidates',
       {
         method: 'POST',
         cookie: beta,
         body: JSON.stringify({
-          source_type: 'meeting_block',
-          source_id: betaWork.blockId,
+          source_type: 'note_doc',
+          source_id: betaWork.docId,
         }),
       },
     );
@@ -331,8 +343,8 @@ describe('tenancy isolation', () => {
       method: 'POST',
       cookie: alpha,
       body: JSON.stringify({
-        source_type: 'meeting_block',
-        source_id: betaWork.blockId,
+        source_type: 'note_doc',
+        source_id: betaWork.docId,
       }),
     });
     expect(attempt.status).toBe(404);
@@ -361,7 +373,7 @@ describe('tenancy isolation', () => {
     expect(
       (
         await call(
-          `/api/portfolio/candidates?source_type=meeting_block&source_id=${betaWork.blockId}`,
+          `/api/portfolio/candidates?source_type=note_doc&source_id=${betaWork.docId}`,
           { method: 'DELETE', cookie: alpha },
         )
       ).status,

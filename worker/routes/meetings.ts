@@ -138,20 +138,32 @@ meetings.get('/', requireMember, async (c) => {
   const { results } = await c.env.DB.prepare(
     `SELECT ${meetingColumns('m')},
             COUNT(a.id) AS attendance_count,
-            (SELECT COUNT(*) FROM meeting_note_blocks b
-              WHERE b.team_id = m.team_id AND b.meeting_id = m.id
-                AND b.deleted_at IS NULL) AS block_count,
+            (SELECT COUNT(*) FROM note_docs d
+              WHERE d.team_id = m.team_id AND d.meeting_id = m.id
+                AND d.deleted_at IS NULL) AS doc_count,
             (SELECT COUNT(*) FROM portfolio_candidates pc
               WHERE pc.team_id = m.team_id
                 AND ((pc.source_type = 'meeting' AND pc.source_id = m.id)
-                  OR (pc.source_type = 'meeting_block' AND pc.source_id IN
-                      (SELECT b2.id FROM meeting_note_blocks b2
-                        WHERE b2.team_id = m.team_id AND b2.meeting_id = m.id
-                          AND b2.deleted_at IS NULL)))) AS flagged_count
+                  OR (pc.source_type = 'note_doc' AND pc.source_id IN
+                      (SELECT d2.id FROM note_docs d2
+                        WHERE d2.team_id = m.team_id AND d2.meeting_id = m.id
+                          AND d2.deleted_at IS NULL)))) AS flagged_count
        FROM meetings m
+       -- Present only. The state 'late' used to be listed here and had been
+       -- unreachable since it left ATTENDANCE_STATES: a value in a query that no
+       -- writer can produce is a false claim about the schema, and it outlived
+       -- two refactors because SQL does not typecheck.
+       --
+       -- The state 'other' is excluded on purpose. It means "there is a sentence
+       -- about this evening", which is not the same as "was in the room", and
+       -- counting it would inflate the "12 there" on the index into a number a
+       -- coach cannot trust.
+       --
+       -- No backticks in a comment inside a template literal, ever. One here
+       -- silently terminated this string and the file stopped parsing.
        LEFT JOIN meeting_attendance a
          ON a.team_id = m.team_id AND a.meeting_id = m.id
-            AND a.state IN ('present', 'late')
+            AND a.state = 'present'
       WHERE m.team_id = ?1 AND m.season_id = ?2
         AND (?3 IS NULL OR m.starts_at >= ?3)
         AND (?4 IS NULL OR m.starts_at <= ?4)
@@ -248,10 +260,18 @@ meetings.get('/:id', requireMember, async (c) => {
     .first();
   if (!meeting) return c.json({ error: 'not_found' }, 404);
 
-  // One batch rather than six awaits. The meeting screen needs all of this to
+  // One batch rather than five awaits. The meeting screen needs all of this to
   // render anything at all, and the candidates array is what lets the editor
   // draw its flag marks without a second request.
-  const [agenda, blocks, attendance, actionItems, candidates] = await c.env.DB.batch([
+  //
+  // ACTION ITEMS ARE DELIBERATELY NOT HERE. They used to be, behind
+  // `requireMember` alone, which meant every student on the team could read a
+  // coach's private notes about named students by loading the meeting screen —
+  // while every route in routes/records.ts answered 403. They now have their own
+  // gated route. Do not add them back: this payload is readable by the whole
+  // team, and a role-conditional field on it would hide that rule from whoever
+  // edits this batch next.
+  const [agenda, meetingDocs, attendance, candidates] = await c.env.DB.batch([
     c.env.DB.prepare(
       `SELECT id, meeting_id, position, title, detail, owner_member_id,
               minutes_planned, sub_team, done, created_by, created_at, updated_at
@@ -260,28 +280,24 @@ meetings.get('/:id', requireMember, async (c) => {
         ORDER BY position ASC`,
     ).bind(teamId, id),
     c.env.DB.prepare(
-      `SELECT id, meeting_id, position, kind, text, media_id, source_agenda_item_id,
-              created_by_member_id, updated_by_member_id, created_at, updated_at
-         FROM meeting_note_blocks
+      // Summaries only, no `content` — the meeting screen lists its documents and
+      // links to them, it does not render them. Same projection as DOC_SUMMARY in
+      // routes/docs.ts, for the same reason.
+      `SELECT id, parent_doc_id, meeting_id, position, title, created_by,
+              updated_by, created_at, updated_at, LENGTH(content) AS content_bytes
+         FROM note_docs
         WHERE team_id = ? AND meeting_id = ? AND deleted_at IS NULL
-        ORDER BY position ASC`,
+        ORDER BY parent_doc_id ASC, position ASC`,
     ).bind(teamId, id),
     c.env.DB.prepare(
-      // arrived_late and left_early belong here, not only in the attendance
-      // route's own projection: the meeting screen seeds its roll from THIS
-      // response, so omitting them silently drops both marks on every reload
-      // while the save and the season rollup keep looking correct.
-      `SELECT id, meeting_id, member_id, state, arrived_late, left_early,
-              minutes, note, recorded_by, recorded_at
+      // `note` belongs here, not only in the attendance route's own
+      // projection: the meeting screen seeds its roll from THIS response, so
+      // omitting it silently drops every "Other" reason on reload while the save
+      // and the season rollup keep looking correct. This is the same regression
+      // arrived_late and left_early had before they were retired.
+      `SELECT id, meeting_id, member_id, state, note, recorded_by, recorded_at
          FROM meeting_attendance
         WHERE team_id = ? AND meeting_id = ?`,
-    ).bind(teamId, id),
-    c.env.DB.prepare(
-      `SELECT id, meeting_id, block_id, text, assignee_member_id, due_at, status,
-              task_id, created_by, created_at, updated_at
-         FROM meeting_action_items
-        WHERE team_id = ? AND meeting_id = ?
-        ORDER BY created_at ASC`,
     ).bind(teamId, id),
     c.env.DB.prepare(
       `SELECT id, source_type, source_id, suggested_award, why, state,
@@ -289,22 +305,23 @@ meetings.get('/:id', requireMember, async (c) => {
          FROM portfolio_candidates
         WHERE team_id = ?
           AND ((source_type = 'meeting' AND source_id = ?)
-            OR (source_type = 'meeting_block' AND source_id IN
-                (SELECT id FROM meeting_note_blocks
+            OR (source_type = 'note_doc' AND source_id IN
+                (SELECT id FROM note_docs
                   WHERE team_id = ? AND meeting_id = ?)))`,
     ).bind(teamId, id, teamId, id),
   ]);
 
+  // 'present' only, matching the list's attendance_count — see the comment on
+  // that JOIN. 'late' was unreachable and `other` is not the same as being here.
   const present = (attendance.results as { member_id: string; state: string }[])
-    .filter((a) => a.state === 'present' || a.state === 'late')
+    .filter((a) => a.state === 'present')
     .map((a) => a.member_id);
 
   return c.json({
     meeting,
     agenda: agenda.results,
-    blocks: blocks.results,
+    docs: meetingDocs.results,
     attendance: attendance.results,
-    action_items: actionItems.results,
     candidates: candidates.results,
     // Derived, so the `Meeting.attendees` shape declared in src/types.ts keeps
     // working now that the legacy JSON column is no longer written.
@@ -467,23 +484,23 @@ meetings.delete(
     if (!force) {
       const content = await c.env.DB.prepare(
         `SELECT
-           (SELECT COUNT(*) FROM meeting_note_blocks
-             WHERE team_id = ?1 AND meeting_id = ?2 AND deleted_at IS NULL) AS blocks,
+           (SELECT COUNT(*) FROM note_docs
+             WHERE team_id = ?1 AND meeting_id = ?2 AND deleted_at IS NULL) AS docs,
            (SELECT COUNT(*) FROM meeting_attendance
              WHERE team_id = ?1 AND meeting_id = ?2) AS attendance,
            (SELECT COUNT(*) FROM meeting_action_items
              WHERE team_id = ?1 AND meeting_id = ?2) AS action_items`,
       )
         .bind(teamId, id)
-        .first<{ blocks: number; attendance: number; action_items: number }>();
+        .first<{ docs: number; attendance: number; action_items: number }>();
 
       const total =
-        (content?.blocks ?? 0) + (content?.attendance ?? 0) + (content?.action_items ?? 0);
+        (content?.docs ?? 0) + (content?.attendance ?? 0) + (content?.action_items ?? 0);
       if (total > 0) {
         return c.json(
           {
             error: 'meeting_has_content',
-            blocks: content?.blocks ?? 0,
+            docs: content?.docs ?? 0,
             attendance: content?.attendance ?? 0,
             action_items: content?.action_items ?? 0,
           },
@@ -492,18 +509,19 @@ meetings.delete(
       }
     }
 
-    // Candidates are polymorphic and cannot cascade, so they are cleared here
-    // explicitly — both the flag on the meeting itself and any flag on one of
-    // its blocks. Missing this is how the inbox fills with rows pointing at
-    // nothing.
+    // Candidates are polymorphic and cannot cascade, so the flag on the meeting
+    // itself is cleared here explicitly. Missing this is how the inbox fills with
+    // rows pointing at nothing.
+    //
+    // Flags on this meeting's DOCUMENTS are deliberately left alone, which is the
+    // opposite of what the block version did. note_docs.meeting_id is ON DELETE
+    // SET NULL, so the documents survive as standalone — deleting the Nov 11
+    // meeting must not shred the notes taken that evening — and a flag on a
+    // document that still exists still points at something real.
     await c.env.DB.batch([
       c.env.DB.prepare(
         `DELETE FROM portfolio_candidates
-          WHERE team_id = ?1
-            AND ((source_type = 'meeting' AND source_id = ?2)
-              OR (source_type = 'meeting_block' AND source_id IN
-                  (SELECT id FROM meeting_note_blocks
-                    WHERE team_id = ?1 AND meeting_id = ?2)))`,
+          WHERE team_id = ? AND source_type = 'meeting' AND source_id = ?`,
       ).bind(teamId, id),
       c.env.DB.prepare('DELETE FROM meetings WHERE id = ? AND team_id = ?').bind(id, teamId),
     ]);

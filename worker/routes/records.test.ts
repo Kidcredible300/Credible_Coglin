@@ -31,86 +31,52 @@ describe('attendance', () => {
       body: JSON.stringify({
         entries: [
           { member_id: adaId, state: 'present' },
-          { member_id: graceId, state: 'excused', note: 'Away meet' },
+          { member_id: graceId, state: 'other', note: 'Away at a league meet' },
         ],
       }),
     });
 
     // A second coach marking only one person must not erase the other.
     const second = await callJson<{
-      attendance: { member_id: string; state: string; arrived_late: number }[];
+      attendance: { member_id: string; state: string; note: string | null }[];
     }>(`/api/meetings/${meetingId}/attendance`, {
       method: 'PUT',
       cookie: coach,
       body: JSON.stringify({
-        entries: [{ member_id: adaId, state: 'present', arrived_late: true }],
+        entries: [{ member_id: adaId, state: 'present' }],
       }),
     });
 
     const byMember = new Map(second.body.attendance.map((a) => [a.member_id, a]));
     expect(byMember.get(adaId)?.state).toBe('present');
-    expect(byMember.get(adaId)?.arrived_late).toBe(1);
-    // Grace was not named in the second write and keeps her excusal.
-    expect(byMember.get(graceId)?.state).toBe('excused');
+    // Grace was not named in the second write and keeps her explanation.
+    expect(byMember.get(graceId)?.state).toBe('other');
+    expect(byMember.get(graceId)?.note).toBe('Away at a league meet');
   });
 
-  it('records arriving late AND leaving early on the same evening', async () => {
-    // The case the first cut of this schema could not express. A single enum
-    // with a `late` value forces a choice about which half of the evening
-    // mattered, and coaches track both because both are true.
-    const coach = await signUpCoach(8104);
-    const meetingId = await makeMeeting(coach);
-    const ada = await inviteAndAccept(coach, { role: 'student', handle: 'halfway' });
-    const adaId = (await whoami(ada.cookie)).member_id;
-
-    const { body } = await callJson<{
-      attendance: {
-        member_id: string;
-        state: string;
-        arrived_late: number;
-        left_early: number;
-        minutes: number | null;
-      }[];
-    }>(`/api/meetings/${meetingId}/attendance`, {
-      method: 'PUT',
-      cookie: coach,
-      body: JSON.stringify({
-        entries: [
-          {
-            member_id: adaId,
-            state: 'present',
-            arrived_late: true,
-            left_early: true,
-            minutes: 70,
-          },
-        ],
-      }),
-    });
-
-    const row = body.attendance.find((a) => a.member_id === adaId);
-    expect(row?.state).toBe('present');
-    expect(row?.arrived_late).toBe(1);
-    expect(row?.left_early).toBe(1);
-    // The time actually in the room, which is what the Sustain hours want.
-    expect(row?.minutes).toBe(70);
-  });
-
-  it('no longer accepts late as a state', async () => {
+  it('no longer accepts late or excused as a state', async () => {
+    // Both values are retired. 'late' left ATTENDANCE_STATES when the timing
+    // marks were introduced, and 'excused' left when they were withdrawn again
+    // in favour of `other` plus a sentence — see migrations/0005_attendance.sql.
+    // Looping is the assertion that proves a retirement actually took, rather
+    // than the enum and the query drifting apart the way 'late' silently did.
     const coach = await signUpCoach(8105);
     const meetingId = await makeMeeting(coach);
     const ada = await inviteAndAccept(coach, { role: 'student', handle: 'notastate' });
     const adaId = (await whoami(ada.cookie)).member_id;
 
-    const { status, body } = await callJson<{ error: string }>(
-      `/api/meetings/${meetingId}/attendance`,
-      {
-        method: 'PUT',
-        cookie: coach,
-        body: JSON.stringify({ entries: [{ member_id: adaId, state: 'late' }] }),
-      },
-    );
-    expect(status).toBe(400);
-    expect(body.error).toBe('invalid_state');
+    for (const state of ['late', 'excused']) {
+      const { status, body } = await callJson<{ error: string }>(
+        `/api/meetings/${meetingId}/attendance`,
+        {
+          method: 'PUT',
+          cookie: coach,
+          body: JSON.stringify({ entries: [{ member_id: adaId, state }] }),
+        },
+      );
+      expect(status, state).toBe(400);
+      expect(body.error, state).toBe('invalid_state');
+    }
   });
 
   it('lets a student check in only themselves', async () => {
@@ -128,7 +94,7 @@ describe('attendance', () => {
       {
         method: 'POST',
         cookie: ada.cookie,
-        body: JSON.stringify({ arrived_late: true, member_id: graceId }),
+        body: JSON.stringify({ member_id: graceId }),
       },
     );
     expect(response.status).toBe(200);
@@ -165,25 +131,152 @@ describe('attendance', () => {
         method: 'PUT',
         cookie: coach,
         body: JSON.stringify({
-          entries: [{ member_id: adaId, state: i === 2 ? 'excused' : 'present' }],
+          entries: [
+            i === 2
+              ? { member_id: adaId, state: 'other', note: 'Dentist' }
+              : { member_id: adaId, state: 'present' },
+          ],
         }),
       });
     }
 
     const { body } = await callJson<{
-      members: {
-        member_id: string;
-        present: number;
-        excused: number;
-        arrived_late: number;
-        minutes: number;
-      }[];
+      members: Record<string, number | string>[];
     }>('/api/attendance/summary', { cookie: coach });
     const ada3 = body.members.find((m) => m.member_id === adaId);
     expect(ada3?.present).toBe(2);
-    expect(ada3?.excused).toBe(1);
-    // The marks roll up alongside the states rather than competing with them.
-    expect(ada3?.arrived_late).toBe(0);
+    expect(ada3?.other).toBe(1);
+    // The retired columns are gone from the projection rather than reported as
+    // permanent zeroes — see the comment on the route.
+    expect(ada3).not.toHaveProperty('excused');
+    expect(ada3).not.toHaveProperty('arrived_late');
+    expect(ada3).not.toHaveProperty('minutes');
+  });
+
+  it('requires a detail when the state is other', async () => {
+    // `other` with nothing after it says less about a student than `absent` does
+    // while looking like it says more. There is no CHECK constraint to stop one,
+    // so this assertion is the only thing that does.
+    const coach = await signUpCoach(8106);
+    const meetingId = await makeMeeting(coach);
+    const ada = await inviteAndAccept(coach, { role: 'student', handle: 'nodetail' });
+    const adaId = (await whoami(ada.cookie)).member_id;
+
+    const { status, body } = await callJson<{ error: string; member_id: string }>(
+      `/api/meetings/${meetingId}/attendance`,
+      {
+        method: 'PUT',
+        cookie: coach,
+        body: JSON.stringify({ entries: [{ member_id: adaId, state: 'other' }] }),
+      },
+    );
+    expect(status).toBe(400);
+    expect(body.error).toBe('missing_detail');
+    // The offending row rides along so the panel can point at it.
+    expect(body.member_id).toBe(adaId);
+
+    // Whitespace is not a detail.
+    const blank = await callJson<{ error: string }>(
+      `/api/meetings/${meetingId}/attendance`,
+      {
+        method: 'PUT',
+        cookie: coach,
+        body: JSON.stringify({
+          entries: [{ member_id: adaId, state: 'other', note: '   ' }],
+        }),
+      },
+    );
+    expect(blank.status).toBe(400);
+    expect(blank.body.error).toBe('missing_detail');
+  });
+
+  it('rejects the whole roll rather than half of it', async () => {
+    // Statements are accumulated and batched only after every entry validates,
+    // so a bad entry in second position must leave the first one unwritten too.
+    // Otherwise a coach retries and double-writes the half that worked.
+    const coach = await signUpCoach(8107);
+    const meetingId = await makeMeeting(coach);
+    const ada = await inviteAndAccept(coach, { role: 'student', handle: 'firsthalf' });
+    const grace = await inviteAndAccept(coach, { role: 'student', handle: 'secondhalf' });
+    const adaId = (await whoami(ada.cookie)).member_id;
+    const graceId = (await whoami(grace.cookie)).member_id;
+
+    const response = await call(`/api/meetings/${meetingId}/attendance`, {
+      method: 'PUT',
+      cookie: coach,
+      body: JSON.stringify({
+        entries: [
+          { member_id: adaId, state: 'present' },
+          { member_id: graceId, state: 'other' },
+        ],
+      }),
+    });
+    expect(response.status).toBe(400);
+
+    const written = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM meeting_attendance WHERE meeting_id = ?',
+    )
+      .bind(meetingId)
+      .first<{ n: number }>();
+    expect(written?.n).toBe(0);
+  });
+
+  it('ignores the retired timing marks rather than rejecting them', async () => {
+    // A coach on yesterday's JS bundle must still be able to take the roll. Same
+    // call normaliseSubTeams makes in lib/roles.ts: drop what you no longer
+    // understand, do not fail the write over it.
+    const coach = await signUpCoach(8108);
+    const meetingId = await makeMeeting(coach);
+    const ada = await inviteAndAccept(coach, { role: 'student', handle: 'staleclient' });
+    const adaId = (await whoami(ada.cookie)).member_id;
+
+    const { status } = await callJson(`/api/meetings/${meetingId}/attendance`, {
+      method: 'PUT',
+      cookie: coach,
+      body: JSON.stringify({
+        entries: [
+          { member_id: adaId, state: 'present', arrived_late: true, left_early: true, minutes: 70 },
+        ],
+      }),
+    });
+    expect(status).toBe(200);
+
+    const row = await env.DB.prepare(
+      'SELECT arrived_late, left_early, minutes FROM meeting_attendance WHERE meeting_id = ? AND member_id = ?',
+    )
+      .bind(meetingId, adaId)
+      .first<{ arrived_late: number; left_early: number; minutes: number | null }>();
+    expect(row?.arrived_late).toBe(0);
+    expect(row?.left_early).toBe(0);
+    expect(row?.minutes).toBe(null);
+  });
+
+  it('does not count other toward the meeting attendance count', async () => {
+    // "12 there" on the index has to mean twelve people in the room. `other`
+    // means there is a sentence about the evening, which is not the same claim.
+    const coach = await signUpCoach(8109);
+    const meetingId = await makeMeeting(coach);
+    const ada = await inviteAndAccept(coach, { role: 'student', handle: 'inroom' });
+    const grace = await inviteAndAccept(coach, { role: 'student', handle: 'dentist' });
+    const adaId = (await whoami(ada.cookie)).member_id;
+    const graceId = (await whoami(grace.cookie)).member_id;
+
+    await call(`/api/meetings/${meetingId}/attendance`, {
+      method: 'PUT',
+      cookie: coach,
+      body: JSON.stringify({
+        entries: [
+          { member_id: adaId, state: 'present' },
+          { member_id: graceId, state: 'other', note: 'Leaving early for dentist' },
+        ],
+      }),
+    });
+
+    const { body } = await callJson<{
+      meetings: { id: string; attendance_count: number }[];
+    }>('/api/meetings', { cookie: coach });
+    const listed = body.meetings.find((m) => m.id === meetingId);
+    expect(listed?.attendance_count).toBe(1);
   });
 });
 
@@ -256,38 +349,26 @@ describe('action items and promotion', () => {
     expect(tasks?.n).toBe(1);
   });
 
-  it('carries the nearest decision forward as the task decision log', async () => {
-    // Free Think-award material: the reasoning was typed at the moment it
+  it('no longer carries a decision forward, which is a deliberate loss', async () => {
+    // This test used to assert that promoting an action item seeded
+    // tasks.decision_log from the nearest preceding `decision` note block — free
+    // Think-award material, because the reasoning was typed at the moment it
     // happened rather than reconstructed in March.
+    //
+    // Blocks are gone (0006) and so is the seam it relied on: an action item being
+    // a line in a note stream. Inverted rather than deleted, so the gap is
+    // recorded as a decision somebody made instead of a feature that quietly
+    // stopped working. Restoring it needs a typed decision node in the editor plus
+    // a Worker-side extractor.
     const coach = await signUpCoach(8202);
     const meetingId = await makeMeeting(coach);
-
-    await call(`/api/meetings/${meetingId}/blocks`, {
-      method: 'POST',
-      cookie: coach,
-      body: JSON.stringify({
-        kind: 'decision',
-        text: 'Went with the 4-bar because the elevator kept binding',
-      }),
-    });
-    const actionBlock = await callJson<{ block: { id: string } }>(
-      `/api/meetings/${meetingId}/blocks`,
-      {
-        method: 'POST',
-        cookie: coach,
-        body: JSON.stringify({ kind: 'action', text: 'Reprint the bracket' }),
-      },
-    );
 
     const item = await callJson<{ action_item: { id: string } }>(
       `/api/meetings/${meetingId}/action-items`,
       {
         method: 'POST',
         cookie: coach,
-        body: JSON.stringify({
-          text: 'Reprint the bracket',
-          block_id: actionBlock.body.block.id,
-        }),
+        body: JSON.stringify({ text: 'Order the bearings' }),
       },
     );
 
@@ -295,31 +376,101 @@ describe('action items and promotion', () => {
       `/api/meetings/${meetingId}/action-items/${item.body.action_item.id}/promote`,
       { method: 'POST', cookie: coach, body: '{}' },
     );
-    expect(promoted.body.task.decision_log).toBe(
-      'Went with the 4-bar because the elevator kept binding',
-    );
+    expect(promoted.status).toBe(201);
+    expect(promoted.body.task.decision_log).toBeNull();
   });
 
-  it('lets a student capture and promote an action item', async () => {
-    const coach = await signUpCoach(8203);
+  it('keeps action items away from students, on read as well as write', async () => {
+    // The headline test for this feature. The list holds a coach's private notes
+    // about named minors — "follow up with John about his behaviour" — so the
+    // boundary is the routes, not the UI. Every verb, including the GETs.
+    const coach = await signUpCoach(8204);
     const meetingId = await makeMeeting(coach);
-    const student = await inviteAndAccept(coach, { role: 'student', handle: 'doer' });
+    const student = await inviteAndAccept(coach, { role: 'student', handle: 'nosy' });
 
     const item = await callJson<{ action_item: { id: string } }>(
       `/api/meetings/${meetingId}/action-items`,
       {
         method: 'POST',
-        cookie: student.cookie,
-        body: JSON.stringify({ text: 'Order more polycarb' }),
+        cookie: coach,
+        body: JSON.stringify({ text: 'COACH-PRIVATE-MARKER' }),
       },
     );
     expect(item.status).toBe(201);
+    const aid = item.body.action_item.id;
 
-    const promoted = await call(
-      `/api/meetings/${meetingId}/action-items/${item.body.action_item.id}/promote`,
-      { method: 'POST', cookie: student.cookie, body: '{}' },
+    const paths: [string, string][] = [
+      ['GET', '/api/action-items'],
+      ['GET', `/api/meetings/${meetingId}/action-items`],
+      ['POST', `/api/meetings/${meetingId}/action-items`],
+      ['PATCH', `/api/meetings/${meetingId}/action-items/${aid}`],
+      ['DELETE', `/api/meetings/${meetingId}/action-items/${aid}`],
+      ['POST', `/api/meetings/${meetingId}/action-items/${aid}/promote`],
+    ];
+    for (const [method, path] of paths) {
+      const response = await call(path, {
+        method,
+        cookie: student.cookie,
+        body: method === 'GET' ? undefined : '{}',
+      });
+      expect(response.status, `${method} ${path}`).toBe(403);
+      expect(await response.text(), `${method} ${path}`).not.toContain(
+        'COACH-PRIVATE-MARKER',
+      );
+    }
+
+    // The leak a route-by-route audit misses. The meeting detail used to include
+    // action_items behind requireMember alone, so a student could read the whole
+    // list from the meeting screen while every route above answered 403.
+    const detail = await call(`/api/meetings/${meetingId}`, { cookie: student.cookie });
+    expect(detail.status).toBe(200);
+    expect(await detail.text()).not.toContain('COACH-PRIVATE-MARKER');
+
+    // And the row survives: 403 must never be a silent delete.
+    const still = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM meeting_action_items WHERE id = ?',
+    )
+      .bind(aid)
+      .first<{ n: number }>();
+    expect(still?.n).toBe(1);
+  });
+
+  it('lets a mentor use the list, because in FIRST that is the same job', async () => {
+    // requireRole('coach', 'mentor') and not requireRole('coach'): a mentor is a
+    // second adult on the team, not a supervised student.
+    const coach = await signUpCoach(8205);
+    const meetingId = await makeMeeting(coach);
+    const mentor = await inviteAndAccept(coach, { role: 'mentor', handle: 'secondadult' });
+
+    const created = await callJson<{ action_item: { id: string } }>(
+      `/api/meetings/${meetingId}/action-items`,
+      {
+        method: 'POST',
+        cookie: mentor.cookie,
+        body: JSON.stringify({ text: 'Pay registration' }),
+      },
     );
-    expect(promoted.status).toBe(201);
+    expect(created.status).toBe(201);
+
+    const listed = await callJson<{ action_items: { text: string }[] }>(
+      `/api/meetings/${meetingId}/action-items`,
+      { cookie: mentor.cookie },
+    );
+    expect(listed.status).toBe(200);
+    expect(listed.body.action_items.map((a) => a.text)).toContain('Pay registration');
+  });
+
+  it('still answers 401 before it answers 403', async () => {
+    // requireMember runs ahead of requireRole in every chain, so an anonymous
+    // caller is told to sign in rather than told they are the wrong role — which
+    // would confirm the endpoint exists to somebody who should not know.
+    const coach = await signUpCoach(8206);
+    const meetingId = await makeMeeting(coach);
+
+    for (const path of ['/api/action-items', `/api/meetings/${meetingId}/action-items`]) {
+      const response = await call(path, {});
+      expect(response.status, path).toBe(401);
+    }
   });
 });
 
@@ -411,7 +562,9 @@ describe('tenancy isolation', () => {
         method: 'PUT',
         cookie: alpha,
         body: JSON.stringify({
-          entries: [{ member_id: alphaMember.member_id, state: 'present' }],
+          entries: [
+            { member_id: alphaMember.member_id, state: 'other', note: 'Dropping by' },
+          ],
         }),
       },
     );
@@ -436,6 +589,18 @@ describe('tenancy isolation', () => {
     // Lists never leak.
     const actions = await call('/api/action-items', { cookie: alpha });
     expect(await actions.text()).not.toContain('BETA-ACTION-MARKER');
+
+    // The per-meeting list, aimed at beta's meeting id. DELIBERATE ASYMMETRY:
+    // this answers 200 with an empty array, not the 404 that routes/meetings.ts
+    // promises for a foreign id. requireRole passes — alpha really is a coach on
+    // their own team — and then the `team_id = ?` predicate simply matches
+    // nothing. That is the honest outcome and it still proves non-leakage, but it
+    // reads as a bug unless you know why, hence this comment.
+    const scoped = await call(`/api/meetings/${betaMeeting}/action-items`, {
+      cookie: alpha,
+    });
+    expect(scoped.status).toBe(200);
+    expect(await scoped.text()).not.toContain('BETA-ACTION-MARKER');
     const boardList = await call('/api/boards', { cookie: alpha });
     expect(await boardList.text()).not.toContain('BETA-BOARD-MARKER');
 

@@ -11,6 +11,7 @@ import Outreach from '@/routes/Outreach';
 import Meetings from '@/routes/Meetings';
 import Meeting from '@/routes/Meeting';
 import Portfolio from '@/routes/Portfolio';
+import Notes from '@/routes/Notes';
 import Placeholder from '@/routes/Placeholder';
 import Debug from '@/routes/Debug';
 import Login from '@/routes/Login';
@@ -82,13 +83,22 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/roster" element={<Roster />} />
             <Route path="/awards" element={<Placeholder />} />
             <Route path="/portfolio" element={<Portfolio />} />
-            <Route path="/calendar" element={<Placeholder />} />
+            {/* /calendar was a stub; the calendar is now a view on /meetings.
+                A redirect rather than a deletion, because the catch-all below
+                renders Placeholder — so a stale bookmark would land on "not
+                built yet" for a feature that does exist. */}
+            <Route
+              path="/calendar"
+              element={<Navigate to="/meetings?view=calendar" replace />}
+            />
             <Route path="/budget" element={<Placeholder />} />
             <Route path="/meetings" element={<Meetings />} />
             {/* The app's first nested route. AppShell resolves its nav label by
                 prefix for this reason — an exact match leaves the mobile title
                 bar saying "Coglin" on the screen a student takes notes on. */}
             <Route path="/meetings/:meetingId" element={<Meeting />} />
+            <Route path="/notes" element={<Notes />} />
+            <Route path="/notes/:docId" element={<Notes />} />
             <Route path="/debug" element={<Debug />} />
             {/* Any unknown path still renders the shell, which keeps the
                 not_found_handling SPA-fallback check meaningful. */}
