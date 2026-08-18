@@ -147,7 +147,10 @@ function readRule(
   body: Record<string, unknown>,
   defaults: {
     timezone: string;
+    /** The season's own first day, used as the default when none is given. */
     seasonFirst: number;
+    /** The earliest a rule may begin: the day after the previous season ended. */
+    seasonFloor: number;
     seasonLast: number;
     existing?: SeriesRow;
   },
@@ -190,9 +193,7 @@ function readRule(
       ? (existing?.location ?? null)
       : optionalString(body.location, 200);
 
-  // Bounds are local-date slots, and both ends are clamped into the season.
-  // Clamping here is what makes the portfolio's "current-season work only" rule
-  // true by construction rather than by a filter somebody might forget.
+  // Bounds are local-date slots.
   const requestedStart =
     body.starts_on === undefined
       ? (existing?.starts_on ?? defaults.seasonFirst)
@@ -205,7 +206,20 @@ function readRule(
       : boundedInt(body.until, 19700101, 21000101);
   if (requestedUntil === null) return { error: 'invalid_until' };
 
-  const startsOn = Math.max(requestedStart, defaults.seasonFirst);
+  /**
+   * A series may START before the season proper and must END with it.
+   *
+   * The asymmetry is deliberate. `currentSeason()` begins a season on September
+   * 1, but FTC kickoff is the first Saturday after Labor Day and teams meet
+   * through the summer to prepare — so clamping the start UP to September 1
+   * made preseason meetings unschedulable, which is simply wrong about how a
+   * season works. The floor instead is the day after the previous season ended,
+   * which is the honest boundary: anything later belongs to this season.
+   *
+   * `until` stays clamped down, because a recurrence rule outliving its own
+   * season has no meaning — and because it is what keeps the walk bounded.
+   */
+  const startsOn = Math.max(requestedStart, defaults.seasonFloor);
   const until = Math.min(requestedUntil, defaults.seasonLast);
   if (startsOn > until) return { error: 'invalid_date_range' };
 
@@ -261,6 +275,7 @@ series.post(
     const parsed = readRule(body, {
       timezone: ctx.timezone,
       seasonFirst: bounds.first,
+      seasonFloor: bounds.floor,
       seasonLast: bounds.last,
     });
     if ('error' in parsed) return c.json({ error: parsed.error }, 400);
@@ -449,6 +464,7 @@ series.patch(
     const parsed = readRule(body, {
       timezone: ctx.timezone,
       seasonFirst: bounds.first,
+      seasonFloor: bounds.floor,
       seasonLast: bounds.last,
       existing,
     });

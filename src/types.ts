@@ -162,6 +162,7 @@ export interface CalendarEvent {
 
 export type MeetingKind =
   | 'build'
+  | 'general'
   | 'outreach'
   | 'design_review'
   | 'business'
@@ -171,6 +172,7 @@ export type MeetingKind =
 
 export const MEETING_KINDS: { id: MeetingKind; label: string }[] = [
   { id: 'build', label: 'Build' },
+  { id: 'general', label: 'General' },
   { id: 'outreach', label: 'Outreach' },
   { id: 'design_review', label: 'Design review' },
   { id: 'business', label: 'Business' },

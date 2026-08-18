@@ -9,6 +9,7 @@ import {
   whoami,
 } from './_helpers';
 import { partsInZone } from '../lib/tz';
+import { MEETING_KINDS } from '../lib/meetings';
 
 beforeAll(() => {
   stubResend();
@@ -96,6 +97,28 @@ describe('meetings CRUD', () => {
     expect(meeting.kind).toBe('drive_practice');
     expect(meeting.location).toBe('Cafeteria');
     expect(meeting.ends_at).toBe(start + 90 * 60);
+  });
+
+  it('accepts every meeting kind it claims to support', async () => {
+    // The guard for a real bug: `general` was added to the MeetingKind union but
+    // not to the array isMeetingKind() checks, so the dropdown offered it and
+    // the server answered 400. Iterating the declared list means a kind that is
+    // declared but not accepted fails here rather than in a coach's face.
+    const cookie = await signUpCoach(4800);
+    const start = (await seasonStart(cookie)) + 7 * 86400;
+
+    for (const kind of MEETING_KINDS) {
+      const { status, body } = await callJson<{ meeting: Meeting; error?: string }>(
+        '/api/meetings',
+        {
+          method: 'POST',
+          cookie,
+          body: JSON.stringify({ starts_at: start, kind }),
+        },
+      );
+      expect(status, `kind ${kind} -> ${body.error ?? 'ok'}`).toBe(201);
+      expect(body.meeting.kind).toBe(kind);
+    }
   });
 
   it('rejects nonsense input', async () => {
@@ -346,7 +369,66 @@ describe('recurrence', () => {
     expect(list.body.meetings).toHaveLength(0);
   });
 
-  it('clamps the rule into the season rather than escaping it', async () => {
+  it('schedules preseason meetings, and still lists them', async () => {
+    // The reported bug: the app refused any date before the season's own first
+    // day, which for a Sept 1 UTC season reads as "8/31/2026 or later" in the
+    // Americas. Teams meet through the summer, so August has to work — and the
+    // nastier half was that the list defaulted its range to the season window,
+    // so a preseason meeting would have been created and then invisible.
+    const cookie = await signUpCoach(4700);
+    const season = await callJson<{ starts_at: number }>('/api/season/current', {
+      cookie,
+    });
+
+    // Three weeks before the season row begins.
+    const preseason = season.body.starts_at - 21 * 86400;
+    const meeting = await createMeeting(cookie, {
+      starts_at: preseason,
+      title: 'Summer build session',
+    });
+    expect(meeting.starts_at).toBe(preseason);
+
+    const { body } = await callJson<{ meetings: Meeting[] }>('/api/meetings', {
+      cookie,
+    });
+    expect(body.meetings.map((m) => m.id)).toContain(meeting.id);
+  });
+
+  it('lets a series begin in preseason but not outlive the season', async () => {
+    const cookie = await signUpCoach(4701);
+    const created = await callJson<{ created: number }>('/api/series', {
+      method: 'POST',
+      cookie,
+      body: JSON.stringify({
+        days_of_week: [2],
+        start_minute: 18 * 60,
+        timezone: NY,
+        // Well before the season, and well after it.
+        starts_on: 19800101,
+        until: 20991231,
+      }),
+    });
+    expect(created.status).toBe(201);
+
+    const season = await callJson<{ starts_at: number; ends_at: number }>(
+      '/api/season/current',
+      { cookie },
+    );
+    const { body } = await callJson<{ meetings: Meeting[] }>('/api/meetings', {
+      cookie,
+    });
+
+    const earliest = Math.min(...body.meetings.map((m) => m.starts_at));
+    const latest = Math.max(...body.meetings.map((m) => m.starts_at));
+
+    // Pulled forward only to the day after the previous season ended, which is
+    // months BEFORE the season's own first day — the whole point of the fix.
+    expect(earliest).toBeLessThan(season.body.starts_at);
+    // And still capped at the end of this season rather than running forever.
+    expect(latest).toBeLessThan(season.body.ends_at + 86400);
+  });
+
+  it('clamps the series end into the season rather than escaping it', async () => {
     const cookie = await signUpCoach(4207);
     await callJson('/api/series', {
       method: 'POST',
@@ -367,8 +449,13 @@ describe('recurrence', () => {
     const { body } = await callJson<{ meetings: Meeting[] }>('/api/meetings', { cookie });
 
     expect(body.meetings.length).toBeGreaterThan(0);
+
+    // The floor is the day after the PREVIOUS season ended, not this season's
+    // first day — preseason is legitimate, so this deliberately does not assert
+    // `>= season.starts_at`. A year and a day before the end is the bound.
+    const floor = season.body.ends_at - 366 * 86400;
     for (const meeting of body.meetings) {
-      expect(meeting.starts_at).toBeGreaterThanOrEqual(season.body.starts_at);
+      expect(meeting.starts_at).toBeGreaterThan(floor);
       // ends_at is 23:59:59 UTC on May 31, which is 7:59pm Eastern — an evening
       // meeting on the season's last day is legitimately after it. Comparing
       // local dates is what makes that not a bug.

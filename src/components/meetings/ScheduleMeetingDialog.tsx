@@ -68,10 +68,13 @@ function countOccurrences(
   days: number[],
   fromInput: string,
   untilInput: string,
-  bounds: { first: string; last: string } | null,
+  bounds: { floor: string; last: string } | null,
 ): number {
   if (days.length === 0 || !fromInput || !untilInput) return 0;
-  const from = bounds && fromInput < bounds.first ? bounds.first : fromInput;
+  // Matches the server: the start is only pulled forward to the season floor
+  // (the day after the previous season ended), and the end is capped at the
+  // season's own last day.
+  const from = bounds && fromInput < bounds.floor ? bounds.floor : fromInput;
   const until = bounds && untilInput > bounds.last ? bounds.last : untilInput;
   if (from > until) return 0;
 
@@ -134,16 +137,16 @@ export function ScheduleMeetingDialog({
    * The season as date-input strings, converted the same way the server does
    * (epoch -> local date), so the two agree about where the season begins.
    */
-  const bounds = useMemo(
-    () =>
-      season
-        ? {
-            first: toDateInput(new Date(season.starts_at * 1000)),
-            last: toDateInput(new Date(season.ends_at * 1000)),
-          }
-        : null,
-    [season],
-  );
+  const bounds = useMemo(() => {
+    if (!season) return null;
+    const last = new Date(season.ends_at * 1000);
+    // The day after the previous season ended, computed the same way the server
+    // does it, so the preview and the outcome agree.
+    const floor = new Date(last);
+    floor.setFullYear(floor.getFullYear() - 1);
+    floor.setDate(floor.getDate() + 1);
+    return { floor: toDateInput(floor), last: toDateInput(last) };
+  }, [season]);
 
   const occurrences = useMemo(
     () => countOccurrences(days, dateValue, untilValue, bounds),
@@ -151,7 +154,7 @@ export function ScheduleMeetingDialog({
   );
 
   /** True when the coach picked a date the server is going to move. */
-  const clamped = bounds !== null && dateValue < bounds.first;
+  const clamped = bounds !== null && dateValue < bounds.floor;
 
   function reset() {
     setRepeats(false);
@@ -244,12 +247,16 @@ export function ScheduleMeetingDialog({
                     and the control screen readers have actually been tested
                     against. A react-day-picker grid would be more bundle for a
                     worse mobile experience. */}
+                {/* Deliberately unbounded. An earlier version set `min` to the
+                    season's first day, which the browser then enforced with
+                    "value must be 8/31/2026 or later" — because a season
+                    starting Sept 1 UTC is Aug 31 in the Americas. Teams meet in
+                    August, so the fence was wrong twice over: wrong about the
+                    date, and wrong that there should be one. */}
                 <Input
                   id="meeting-date"
                   type="date"
                   required
-                  min={bounds?.first}
-                  max={bounds?.last}
                   value={dateValue}
                   onChange={(e) => setDateValue(e.target.value)}
                 />
@@ -354,7 +361,7 @@ export function ScheduleMeetingDialog({
                     <Input
                       id="meeting-until"
                       type="date"
-                      min={bounds?.first}
+                      min={bounds?.floor}
                       max={bounds?.last}
                       value={untilValue}
                       onChange={(e) => setUntilValue(e.target.value)}
@@ -376,10 +383,10 @@ export function ScheduleMeetingDialog({
                             .sort((a, b) => a - b)
                             .map((d) => WEEKDAYS[d].label)
                             .join(' and ')}`}
-                      , starting {clamped && bounds ? bounds.first : dateValue} —{' '}
+                      , starting {clamped && bounds ? bounds.floor : dateValue} —{' '}
                       <span className="tabular font-mono">{occurrences}</span>{' '}
                       {occurrences === 1 ? 'meeting' : 'meetings'}.
-                      {clamped && ' The season starts then.'}
+                      {clamped && ' That is as early as this season goes.'}
                     </p>
                   )}
                 </div>
