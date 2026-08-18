@@ -31,6 +31,8 @@
  * to offer one.
  */
 import type {
+  ActionItem,
+  ActionStatus,
   AgendaItem,
   AttendanceRecord,
   AttendanceState,
@@ -44,6 +46,7 @@ import type {
   CandidateState,
   Meeting,
   NoteBlock,
+  OpenActionItem,
   MeetingKind,
   MeetingSeries,
   MeetingStatus,
@@ -225,13 +228,16 @@ export function listMeetings(params?: {
  * second round trip — the flag lives in `portfolio_candidates`, not on the
  * block, so there is exactly one source of truth for whether something is
  * flagged.
+ *
+ * `action_items` is deliberately NOT here. They are coach-private and have their
+ * own gated route (listMeetingActionItems); this payload is readable by every
+ * member of the team. Adding the field back re-opens the leak.
  */
 export interface MeetingDetail {
   meeting: Meeting;
   agenda: AgendaItem[];
   blocks: NoteBlock[];
-  attendance: unknown[];
-  action_items: unknown[];
+  attendance: AttendanceRecord[];
   candidates: PortfolioCandidate[];
   attendees: string[];
 }
@@ -543,38 +549,54 @@ export function createBoard(input: { name: string; sub_team?: string | null }): 
   return send<{ board: Board }>('/api/boards', 'POST', input).then((r) => r.board);
 }
 
-/** Action items captured in a meeting, once promoted to real board tasks. */
-export function listActionItems(status?: 'open' | 'done' | 'dropped'): Promise<
-  {
-    id: string;
-    meeting_id: string;
-    text: string;
-    assignee_member_id: string | null;
-    due_at: number | null;
-    status: string;
-    task_id: string | null;
-  }[]
-> {
+/**
+ * The coach's own open items across the season, for the dashboard.
+ *
+ * Coach and mentor only — the server answers 403 to anyone else, which is why
+ * the dashboard gates the CALL and not just the rendering.
+ */
+export function listActionItems(status?: ActionStatus): Promise<OpenActionItem[]> {
   const suffix = status ? `?status=${status}` : '';
-  return get<{ action_items: [] }>(`/api/action-items${suffix}`).then(
+  return get<{ action_items: OpenActionItem[] }>(`/api/action-items${suffix}`).then(
     (r) => r.action_items,
   );
 }
 
+/** One meeting's action items. Coach and mentor only. */
+export function listMeetingActionItems(meetingId: string): Promise<ActionItem[]> {
+  return get<{ action_items: ActionItem[] }>(
+    `/api/meetings/${meetingId}/action-items`,
+  ).then((r) => r.action_items);
+}
+
 export function createActionItem(
   meetingId: string,
-  input: {
-    text: string;
-    assignee_member_id?: string | null;
-    due_at?: number | null;
-    block_id?: string;
-  },
-): Promise<{ id: string }> {
-  return send<{ action_item: { id: string } }>(
+  input: { text: string; due_at?: number | null },
+): Promise<ActionItem> {
+  return send<{ action_item: ActionItem }>(
     `/api/meetings/${meetingId}/action-items`,
     'POST',
     input,
   ).then((r) => r.action_item);
+}
+
+export function updateActionItem(
+  meetingId: string,
+  id: string,
+  patch: { text?: string; status?: ActionStatus; due_at?: number | null },
+): Promise<ActionItem> {
+  return send<{ action_item: ActionItem }>(
+    `/api/meetings/${meetingId}/action-items/${id}`,
+    'PATCH',
+    patch,
+  ).then((r) => r.action_item);
+}
+
+export function deleteActionItem(
+  meetingId: string,
+  id: string,
+): Promise<{ ok: true }> {
+  return send(`/api/meetings/${meetingId}/action-items/${id}`, 'DELETE');
 }
 
 /** Turn a meeting's action item into a board task. Creates a board if needed. */
@@ -596,23 +618,21 @@ export function putAttendance(
     member_id: string;
     /** null clears the entry rather than recording an absence. */
     state: AttendanceState | null;
-    arrived_late?: boolean;
-    left_early?: boolean;
-    minutes?: number;
+    /** Required when state is 'other'; the server answers missing_detail without it. */
     note?: string;
   }[],
 ): Promise<{ attendance: AttendanceRecord[] }> {
   return send(`/api/meetings/${meetingId}/attendance`, 'PUT', { entries });
 }
 
-/** Check yourself in. The server ignores any member id in the body. */
+/**
+ * Check yourself in. The server ignores the body entirely and uses the session's
+ * own membership, so a student can never mark a friend present.
+ */
 export function checkInSelf(
   meetingId: string,
-  arrivedLate = false,
-): Promise<{ ok: true; member_id: string; arrived_late: boolean }> {
-  return send(`/api/meetings/${meetingId}/attendance/self`, 'POST', {
-    arrived_late: arrivedLate,
-  });
+): Promise<{ ok: true; member_id: string; state: 'present' }> {
+  return send(`/api/meetings/${meetingId}/attendance/self`, 'POST', {});
 }
 
 export function attendanceSummary(): Promise<{
@@ -621,11 +641,8 @@ export function attendanceSummary(): Promise<{
     member_id: string;
     display_name: string;
     present: number;
-    excused: number;
     absent: number;
-    arrived_late: number;
-    left_early: number;
-    minutes: number;
+    other: number;
   }[];
 }> {
   return get('/api/attendance/summary');

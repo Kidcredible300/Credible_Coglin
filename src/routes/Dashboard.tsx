@@ -29,7 +29,7 @@ const AWARD_LABELS: Record<AwardKey, string> = {
 };
 
 export default function Dashboard() {
-  const { team } = useSession();
+  const { team, member } = useSession();
   const now = api.now();
   const season = useAsync(api.getCurrentSeason);
   const calendar = useAsync(api.listCalendar);
@@ -37,6 +37,21 @@ export default function Dashboard() {
   const outreach = useAsync(api.listOutreach);
   const criteria = useAsync(api.listAwardCriteria);
   const meetings = useAsync(() => api.listMeetings());
+
+  /**
+   * The coach's own follow-ups, gated at the FETCH and not just the render.
+   *
+   * GET /api/action-items is coach-and-mentor only and answers 403 to everyone
+   * else. `useAsync` fires unconditionally, so calling it for a student would put
+   * this page into an error state for a section that student is not supposed to
+   * know exists — the privacy gate would announce itself. Resolving to an empty
+   * list keeps the request from being made at all.
+   */
+  const canManage = member.role === 'coach' || member.role === 'mentor';
+  const coachItems = useAsync(
+    () => (canManage ? api.listActionItems('open') : Promise.resolve([])),
+    [canManage],
+  );
 
   /**
    * The next one, not the first one.
@@ -260,6 +275,58 @@ export default function Dashboard() {
                   )}
               </ul>
             </section>
+
+            {/* The coach's own follow-ups, across every meeting. Same dot, tone
+                and relativeDays vocabulary as "Needs attention" above, so the two
+                read as one system rather than two lists that happen to be
+                adjacent. */}
+            {canManage && (
+              <section>
+                <div className="mb-3 flex items-baseline justify-between">
+                  <h2 className="u-eyebrow">Your to-do</h2>
+                  <span className="text-muted-foreground text-xs">coaches only</span>
+                </div>
+                <ul className="bg-card border-border divide-border divide-y rounded-lg border">
+                  {coachItems.status === 'loading' && (
+                    <li className="p-4">
+                      <Skeleton className="h-16" />
+                    </li>
+                  )}
+                  {(coachItems.data ?? []).slice(0, 5).map((item) => (
+                    <li key={item.id} className="flex items-start gap-3 px-4 py-3">
+                      <span
+                        className={
+                          item.due_at !== null && item.due_at < now
+                            ? 'bg-destructive mt-1.5 size-1.5 shrink-0 rounded-[1px]'
+                            : 'bg-primary mt-1.5 size-1.5 shrink-0 rounded-[1px]'
+                        }
+                        aria-hidden
+                      />
+                      <Link
+                        to={`/meetings/${item.meeting_id}`}
+                        className="focus-visible:ring-ring min-w-0 flex-1 text-sm focus-visible:ring-2 focus-visible:outline-none"
+                      >
+                        {item.text}
+                        <span className="text-muted-foreground block text-xs">
+                          {item.meeting_title}
+                        </span>
+                      </Link>
+                      <span className="text-muted-foreground shrink-0 text-xs">
+                        {item.due_at !== null ? relativeDays(item.due_at, now) : ''}
+                      </span>
+                    </li>
+                  ))}
+                  {/* An empty list is a real answer, not a slow one — the same
+                      lesson the Next meeting card above already learned. */}
+                  {coachItems.status === 'ready' &&
+                    (coachItems.data ?? []).length === 0 && (
+                      <li className="text-muted-foreground px-4 py-6 text-center text-sm">
+                        Nothing on your list.
+                      </li>
+                    )}
+                </ul>
+              </section>
+            )}
           </div>
         </div>
       </div>

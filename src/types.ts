@@ -102,6 +102,41 @@ export interface AttendanceRecord {
   recorded_at: number;
 }
 
+/** open | done | dropped, mirroring ACTION_STATUSES in worker/lib/meetings.ts. */
+export type ActionStatus = 'open' | 'done' | 'dropped';
+
+/**
+ * One line on a coach's private list for a meeting.
+ *
+ * "Pay registration." "Email Jamie's mum." "Follow up with John about his
+ * behaviour at meetings." Not team tasks and not notes — one adult's own
+ * responsibilities, some of them about a named student, which is why the routes
+ * are coach-and-mentor only rather than merely hidden from students.
+ *
+ * `assignee_member_id` exists in the schema and is never written by the UI: the
+ * only people who can READ this list are coaches and mentors, so assigning an
+ * item to a student would create an assignment they can never see. The column is
+ * kept for a future shared-action-items feature.
+ */
+export interface ActionItem {
+  id: string;
+  meeting_id: string;
+  text: string;
+  assignee_member_id: string | null;
+  due_at: number | null;
+  status: ActionStatus;
+  task_id: string | null;
+  created_by: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+/** An action item carrying its meeting, for the cross-season dashboard rollup. */
+export interface OpenActionItem extends ActionItem {
+  meeting_title: string;
+  meeting_starts_at: number;
+}
+
 export interface Board {
   id: string;
   team_id: string;
