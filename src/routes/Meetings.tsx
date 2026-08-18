@@ -123,7 +123,7 @@ function MeetingRow({ meeting, now }: { meeting: MeetingSummary; now: number }) 
           )}
           {/* The nag that makes the archive complete. A past meeting with no
               notes is the thing a Think submission cannot get back in March. */}
-          {past && !cancelled && meeting.block_count === 0 && (
+          {past && !cancelled && meeting.doc_count === 0 && (
             <span className="text-muted-foreground italic">No notes</span>
           )}
         </div>
@@ -152,11 +152,16 @@ export default function Meetings() {
    * Default to Past when the last meeting ended within twelve hours and nobody
    * wrote anything down. The person opening this screen at 9pm just finished a
    * meeting, and what they want is the one they were in — not the next one.
+   *
+   * `doc_count` replaced `block_count` here and the rule is unchanged, not merely
+   * renamed: pressing "Start meeting" seeds a document exactly as it used to seed
+   * blocks, so "nobody wrote anything down" still means the same thing and still
+   * stops firing once somebody has begun.
    */
   const [tab, setTab] = useState<'upcoming' | 'past' | null>(null);
   const activeTab =
     tab ??
-    (past[0] && now - past[0].starts_at < 12 * 3600 && past[0].block_count === 0
+    (past[0] && now - past[0].starts_at < 12 * 3600 && past[0].doc_count === 0
       ? 'past'
       : 'upcoming');
 

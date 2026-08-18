@@ -40,12 +40,12 @@ import type {
   AwardKey,
   Board,
   BoardOp,
-  BlockKind,
   CalendarEvent,
   CandidateSourceType,
   CandidateState,
   Meeting,
-  NoteBlock,
+  NoteDoc,
+  NoteDocSummary,
   OpenActionItem,
   MeetingKind,
   MeetingSeries,
@@ -236,7 +236,7 @@ export function listMeetings(params?: {
 export interface MeetingDetail {
   meeting: Meeting;
   agenda: AgendaItem[];
-  blocks: NoteBlock[];
+  docs: NoteDocSummary[];
   attendance: AttendanceRecord[];
   candidates: PortfolioCandidate[];
   attendees: string[];
@@ -339,87 +339,115 @@ export function deleteSeries(id: string): Promise<{ ok: true; deleted: number }>
 
 // --------------------------------------------------------------------- notes
 
-export function listBlocks(
-  meetingId: string,
-): Promise<{ blocks: NoteBlock[]; rev: number }> {
-  return get(`/api/meetings/${meetingId}/blocks`);
+/**
+ * The season's whole document tree, flat, plus which documents are flagged.
+ *
+ * Flat with parent pointers rather than nested: nesting means two
+ * representations of ordering — array order AND `position` — that can disagree,
+ * and it leaves the client unable to reorder optimistically without re-nesting.
+ * The tree build lives in lib/docTree.ts, where the drag code needs it anyway.
+ *
+ * Bodies are not included. Forty titles do not need forty documents of prose.
+ */
+export function listDocs(): Promise<{
+  docs: NoteDocSummary[];
+  flagged: string[];
+}> {
+  return get('/api/notes');
+}
+
+export function getDoc(docId: string): Promise<NoteDoc> {
+  return get<{ doc: NoteDoc }>(`/api/notes/${docId}`).then((r) => r.doc);
 }
 
 /**
- * One row on the server. Polled by an open editor so a second note-taker's
- * edits surface without a websocket; cheap enough to ask constantly.
+ * One row on the server. The polling seam for a second editor's changes, cheap
+ * enough to ask constantly — though nothing calls it yet; the intended answer is
+ * a websocket into the same reducer, not a poll.
  */
-export function blocksRev(
-  meetingId: string,
-): Promise<{ rev: number; count: number }> {
-  return get(`/api/meetings/${meetingId}/blocks/rev`);
+export function docRev(docId: string): Promise<{ rev: number; updated_at: number }> {
+  return get(`/api/notes/${docId}/rev`);
 }
 
 /**
- * The client picks the id so a flag can attach to a paragraph that has not
- * finished saving. A retried create returns the row that already exists rather
- * than duplicating a line the student watched appear once.
+ * The client may pick the id, so a flag can attach to a page that has not
+ * finished saving. A retried create returns the existing row rather than leaving
+ * a ghost document in the sidebar.
  */
-export function createBlock(
-  meetingId: string,
+export function createDoc(input: {
+  id?: string;
+  title?: string;
+  parent_doc_id?: string | null;
+  meeting_id?: string | null;
+  after_id?: string;
+}): Promise<NoteDoc> {
+  return send<{ doc: NoteDoc }>('/api/notes', 'POST', input).then((r) => r.doc);
+}
+
+/** Rename only. Deliberately not a content write — see routes/docs.ts. */
+export function renameDoc(docId: string, title: string): Promise<NoteDoc> {
+  return send<{ doc: NoteDoc }>(`/api/notes/${docId}`, 'PATCH', { title }).then(
+    (r) => r.doc,
+  );
+}
+
+/**
+ * The keystroke path. An unchanged save costs nothing server-side and does not
+ * burn a rev.
+ *
+ * `baseRev` is the `rev` you last saw. Send it and a save that would overwrite
+ * somebody else throws `stale_content` — which must NOT be retried, because
+ * retrying a stale write forever is the failure mode. Omit it only to accept
+ * last-write-wins deliberately.
+ */
+export function putDocContent(
+  docId: string,
+  content: string,
+  baseRev?: number,
+): Promise<{ doc: NoteDoc; unchanged?: boolean }> {
+  return send(`/api/notes/${docId}/content`, 'PUT', {
+    content,
+    ...(baseRev !== undefined ? { base_rev: baseRev } : {}),
+  });
+}
+
+/**
+ * Reparent, change meeting, reorder — one call, because they are one gesture.
+ *
+ * Dragging a document onto a page and dragging it onto a meeting are the same
+ * action with different drop targets. When a parent is given the server forces
+ * `meeting_id` to the parent's, so the caller never computes it.
+ */
+export function moveDoc(
+  docId: string,
   input: {
-    id?: string;
-    kind?: BlockKind;
-    text?: string;
-    media_id?: string | null;
-    after_id?: string;
-    position?: number;
+    parent_doc_id?: string | null;
+    meeting_id?: string | null;
+    after_id?: string | null;
   },
-): Promise<NoteBlock> {
-  return send<{ block: NoteBlock }>(
-    `/api/meetings/${meetingId}/blocks`,
-    'POST',
-    input,
-  ).then((r) => r.block);
+): Promise<{ doc: NoteDoc; moved: number }> {
+  return send(`/api/notes/${docId}/move`, 'POST', input);
 }
 
-/** The keystroke path. An unchanged text write costs nothing server-side. */
-export function updateBlock(
-  meetingId: string,
-  blockId: string,
-  patch: { text?: string; kind?: BlockKind; media_id?: string | null; position?: number },
-): Promise<NoteBlock> {
-  return send<{ block: NoteBlock }>(
-    `/api/meetings/${meetingId}/blocks/${blockId}`,
-    'PATCH',
-    patch,
-  ).then((r) => r.block);
+/**
+ * Soft delete, cascading to descendants.
+ *
+ * `deleted` is the exact id list, which restore takes back so a document that
+ * had since been reparented elsewhere is not dragged along with it.
+ * `candidate_orphaned` says a portfolio flag outlived its document.
+ */
+export function deleteDoc(docId: string): Promise<{
+  ok: true;
+  deleted: string[];
+  candidate_orphaned: boolean;
+}> {
+  return send(`/api/notes/${docId}`, 'DELETE');
 }
 
-/** Soft delete. `candidate_orphaned` says a portfolio flag outlived the block. */
-export function deleteBlock(
-  meetingId: string,
-  blockId: string,
-): Promise<{ ok: true; block_id: string; candidate_orphaned: boolean }> {
-  return send(`/api/meetings/${meetingId}/blocks/${blockId}`, 'DELETE');
-}
-
-export function restoreBlock(
-  meetingId: string,
-  blockId: string,
-): Promise<NoteBlock> {
-  return send<{ block: NoteBlock }>(
-    `/api/meetings/${meetingId}/blocks/${blockId}/restore`,
-    'POST',
-  ).then((r) => r.block);
-}
-
-/** The structural path: reorder, multi-block paste, range delete. Atomic. */
-export function replaceBlocks(
-  meetingId: string,
-  blocks: {
-    id?: string;
-    kind: BlockKind;
-    text: string;
-    media_id?: string | null;
-  }[],
-): Promise<{ blocks: NoteBlock[]; rev: number }> {
-  return send(`/api/meetings/${meetingId}/blocks`, 'PUT', { blocks });
+export function restoreDoc(docId: string, ids?: string[]): Promise<NoteDoc> {
+  return send<{ doc: NoteDoc }>(`/api/notes/${docId}/restore`, 'POST', { ids }).then(
+    (r) => r.doc,
+  );
 }
 
 export function createAgendaItem(
@@ -452,10 +480,17 @@ export function deleteAgendaItem(
   return send(`/api/meetings/${meetingId}/agenda/${itemId}`, 'DELETE');
 }
 
-/** Seeds notes from the agenda and marks the meeting under way. Idempotent. */
-export function startMeeting(
-  meetingId: string,
-): Promise<{ meeting: Meeting; blocks: NoteBlock[] }> {
+/**
+ * Seeds a document from the agenda and marks the meeting under way. Idempotent.
+ *
+ * `doc_id` is the page to open, and it is null on a second press — the caller
+ * already has the tree, which is what makes the button safe to hammer.
+ */
+export function startMeeting(meetingId: string): Promise<{
+  meeting: Meeting;
+  doc_id: string | null;
+  docs: NoteDocSummary[];
+}> {
   return send(`/api/meetings/${meetingId}/start`, 'POST');
 }
 
@@ -499,15 +534,17 @@ export interface HydratedCandidate extends PortfolioCandidate {
     id: string;
     kind?: string;
     text?: string;
+    /** A note document's first 280 characters of plain text. */
+    excerpt?: string;
     media_id?: string | null;
-    meeting_id?: string;
-    meeting_title?: string;
-    meeting_starts_at?: number;
+    meeting_id?: string | null;
+    meeting_title?: string | null;
+    meeting_starts_at?: number | null;
     title?: string;
     starts_at?: number;
     caption?: string | null;
   } | null;
-  /** The block was deleted after being flagged; the flag deliberately survives. */
+  /** The source was deleted after being flagged; the flag deliberately survives. */
   source_deleted: boolean;
 }
 

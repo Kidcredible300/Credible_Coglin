@@ -1,12 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { ArrowLeft, BookmarkCheck, Check, Copy, MapPin } from 'lucide-react';
+import { ArrowLeft, BookmarkCheck, FileText, MapPin, NotebookPen } from 'lucide-react';
 import * as api from '@/lib/api';
 import { useAsync } from '@/lib/useAsync';
 import { useSession } from '@/lib/session';
 import { formatLongDate, formatTime, relativeDays } from '@/lib/format';
-import { clearDraft, readDraft, useNoteSync } from '@/lib/useNoteSync';
-import { newBlock, toDraft, toPlainText, type DraftBlock } from '@/lib/notes';
 import { EmptyState } from '@/components/EmptyState';
 import { Skeleton } from '@/components/Skeleton';
 import { Badge } from '@/components/ui/badge';
@@ -17,54 +15,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { NoteEditor } from '@/components/notes/NoteEditor';
 import { AttendancePanel } from '@/components/meetings/AttendancePanel';
 import { CoachActionItems } from '@/components/meetings/CoachActionItems';
 import { MEETING_KINDS } from '@/types';
 
 const KIND_LABEL = new Map(MEETING_KINDS.map((k) => [k.id, k.label]));
-
-/**
- * Save state as one quiet line, not a toast.
- *
- * Every message here is a persistent STATE — saved, saving, not saved — and a
- * toast that disappears while the wifi is still down is a lie. On a phone it
- * would also land under the tab bar and the keyboard.
- */
-function SaveIndicator({
-  status,
-  savedAt,
-  onRetry,
-}: {
-  status: 'idle' | 'saving' | 'saved' | 'failed';
-  savedAt: number | null;
-  onRetry: () => void;
-}) {
-  if (status === 'failed') {
-    return (
-      <div
-        role="alert"
-        className="border-destructive/40 bg-destructive/10 text-destructive flex items-center gap-3 rounded-md border px-3 py-2 text-sm"
-      >
-        <span>Not saved — retrying.</span>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="focus-visible:ring-ring min-h-11 font-medium underline focus-visible:ring-2 focus-visible:outline-none"
-        >
-          Retry now
-        </button>
-      </div>
-    );
-  }
-  return (
-    <p aria-live="polite" className="text-muted-foreground text-xs">
-      {status === 'saving' && 'Saving…'}
-      {status === 'saved' && savedAt && `Saved · ${formatTime(Math.floor(savedAt / 1000))}`}
-      {status === 'idle' && ' '}
-    </p>
-  );
-}
 
 export default function Meeting() {
   const { meetingId } = useParams();
@@ -80,40 +35,6 @@ export default function Meeting() {
   const canManage = member.role === 'coach' || member.role === 'mentor';
   const now = api.now();
 
-  const [blocks, setBlocks] = useState<DraftBlock[]>([]);
-  const [flaggedIds, setFlaggedIds] = useState<Set<string>>(new Set());
-  const [draftOffer, setDraftOffer] = useState<DraftBlock[] | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  const { state: sync, enqueue, flushNow } = useNoteSync(meetingId as string, canEdit);
-
-  /**
-   * Seed local state from the server once, then own it.
-   *
-   * Same shape as Boards.tsx: the fetch is the starting point, not a
-   * subscription. Anything else and a debounced save would fight the refetch it
-   * triggered.
-   */
-  useEffect(() => {
-    if (!detail.data) return;
-    const server = detail.data.blocks.map(toDraft);
-    setBlocks(server.length > 0 ? server : [newBlock()]);
-    setFlaggedIds(
-      new Set(
-        detail.data.candidates
-          .filter((c) => c.source_type === 'meeting_block')
-          .map((c) => c.source_id),
-      ),
-    );
-
-    // A draft newer than the server's copy means the last session ended badly —
-    // wifi died, or a session expired mid-sentence. Offer it rather than
-    // silently picking a side.
-    const draft = readDraft(meetingId as string);
-    const newest = detail.data.blocks.reduce((max, b) => Math.max(max, b.updated_at), 0);
-    if (draft && draft.savedAt > newest * 1000) setDraftOffer(draft.blocks);
-  }, [detail.data, meetingId]);
-
   const meetingFlagged = useMemo(
     () =>
       (detail.data?.candidates ?? []).some(
@@ -123,56 +44,6 @@ export default function Meeting() {
   );
   const [wholeFlagged, setWholeFlagged] = useState(false);
   useEffect(() => setWholeFlagged(meetingFlagged), [meetingFlagged]);
-
-  const onEditorChange = useCallback(
-    (next: DraftBlock[], immediate: boolean) => {
-      setBlocks(next);
-      enqueue(next, immediate);
-    },
-    [enqueue],
-  );
-
-  /**
-   * Toggle a flag.
-   *
-   * Optimistic, and flushed immediately rather than debounced: a mark that sits
-   * in a 600ms wait feels like it did not register, and the whole premise of the
-   * affordance is one confident tap. The block is saved first so the server has
-   * a row to attach the flag to.
-   */
-  const onToggleFlag = useCallback(
-    async (block: DraftBlock) => {
-      const wasFlagged = flaggedIds.has(block.id);
-      setFlaggedIds((prev) => {
-        const next = new Set(prev);
-        if (wasFlagged) next.delete(block.id);
-        else next.add(block.id);
-        return next;
-      });
-
-      try {
-        if (wasFlagged) {
-          await api.unflagCandidate('meeting_block', block.id);
-        } else {
-          flushNow();
-          await api.flagCandidate({
-            source_type: 'meeting_block',
-            source_id: block.id,
-          });
-        }
-      } catch {
-        // Put the mark back where it was. A flag that looks applied but is not
-        // is worse than one that visibly failed, because nobody checks in March.
-        setFlaggedIds((prev) => {
-          const next = new Set(prev);
-          if (wasFlagged) next.add(block.id);
-          else next.delete(block.id);
-          return next;
-        });
-      }
-    },
-    [flaggedIds, flushNow],
-  );
 
   async function onToggleWholeMeeting() {
     const was = wholeFlagged;
@@ -190,15 +61,22 @@ export default function Meeting() {
   }
 
   async function onStart() {
-    await api.startMeeting(meetingId as string);
+    const result = await api.startMeeting(meetingId as string);
     setReloadKey((k) => k + 1);
+    // Straight into the page it just seeded. On a second press doc_id is null and
+    // the caller is already looking at the tree, so staying put is correct.
+    if (result.doc_id) navigate(`/notes/${result.doc_id}`);
   }
 
-  async function onCopy() {
-    await navigator.clipboard.writeText(toPlainText(blocks));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  /** A fresh page on this meeting, opened ready to type. */
+  async function onTakeNotes() {
+    const doc = await api.createDoc({
+      meeting_id: meetingId as string,
+      title: 'Notes',
+    });
+    navigate(`/notes/${doc.id}`);
   }
+
 
   if (detail.status === 'loading') {
     return (
@@ -225,10 +103,15 @@ export default function Meeting() {
     );
   }
 
-  const { meeting, agenda } = detail.data;
+  const { meeting, agenda, docs } = detail.data;
   const cancelled = meeting.status === 'cancelled';
   const started = meeting.started_at !== null;
-  const flaggedCount = flaggedIds.size + (wholeFlagged ? 1 : 0);
+  /* Documents carry their own flags in the notes screen; this counts what is
+     flagged ABOUT this meeting, which is the meeting itself plus any of its pages. */
+  const flaggedDocs = (detail.data.candidates ?? []).filter(
+    (c) => c.source_type === 'note_doc',
+  ).length;
+  const flaggedCount = flaggedDocs + (wholeFlagged ? 1 : 0);
 
   return (
     <>
@@ -288,17 +171,6 @@ export default function Meeting() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => void onCopy()}>
-                  {copied ? (
-                    <>
-                      <Check className="size-4" aria-hidden /> Copied
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="size-4" aria-hidden /> Copy notes
-                    </>
-                  )}
-                </DropdownMenuItem>
                 {canEdit && (
                   <DropdownMenuItem onSelect={() => void onToggleWholeMeeting()}>
                     {wholeFlagged
@@ -325,35 +197,6 @@ export default function Meeting() {
       </div>
 
       <div className="space-y-6 px-4 py-6 md:px-8">
-        {draftOffer && (
-          <div
-            role="alert"
-            className="border-primary/40 bg-primary/5 flex flex-wrap items-center gap-3 rounded-md border px-3 py-2 text-sm"
-          >
-            <span>You have unsaved notes from this device.</span>
-            <Button
-              size="xs"
-              onClick={() => {
-                setBlocks(draftOffer);
-                enqueue(draftOffer, true);
-                setDraftOffer(null);
-              }}
-            >
-              Restore
-            </Button>
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={() => {
-                clearDraft(meetingId as string);
-                setDraftOffer(null);
-              }}
-            >
-              Discard
-            </Button>
-          </div>
-        )}
-
         {agenda.length > 0 && (
           <section>
             <h2 className="u-eyebrow mb-3">Agenda</h2>
@@ -398,28 +241,46 @@ export default function Meeting() {
 
         <section>
           <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="u-eyebrow">Notes</h2>
-            <SaveIndicator
-              status={sync.status}
-              savedAt={sync.savedAt}
-              onRetry={flushNow}
-            />
+            <h2 className="u-eyebrow">Documents</h2>
+            {canEdit && !cancelled && (
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => void onTakeNotes()}
+              >
+                <NotebookPen className="size-3.5" aria-hidden />
+                Take notes
+              </Button>
+            )}
           </div>
-
-          <div className="bg-card border-border rounded-lg border px-2 py-3 md:px-4">
-            <NoteEditor
-              blocks={blocks}
-              flaggedIds={flaggedIds}
-              readOnly={!canEdit}
-              onChange={onEditorChange}
-              onToggleFlag={(block) => void onToggleFlag(block)}
-            />
-          </div>
-
-          <p className="text-muted-foreground mt-3 text-xs">
-            Enter starts a new line. The bookmark marks anything worth putting in
-            the portfolio — you can sort out which award it belongs to later.
-          </p>
+          {/* The pages themselves live at /notes, which is where the editor and the
+              tree are. This is the door, not a second editor: a meeting can have
+              several documents now — the build team's and the finance team's — and
+              one inline editor could only ever show one of them. */}
+          {docs.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              {canEdit
+                ? 'Nothing written down yet.'
+                : 'Nobody has taken notes for this meeting.'}
+            </p>
+          ) : (
+            <ul className="bg-card border-border divide-border divide-y rounded-lg border">
+              {docs.map((doc) => (
+                <li key={doc.id}>
+                  <Link
+                    to={`/notes/${doc.id}`}
+                    className="focus-visible:ring-ring flex min-h-11 items-center gap-2 px-4 py-3 text-sm focus-visible:ring-2 focus-visible:outline-none"
+                  >
+                    <FileText className="text-muted-foreground size-4 shrink-0" aria-hidden />
+                    <span className="min-w-0 flex-1 truncate">{doc.title}</span>
+                    {doc.content_bytes <= 2 && (
+                      <span className="text-muted-foreground text-xs">empty</span>
+                    )}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       </div>
     </>
