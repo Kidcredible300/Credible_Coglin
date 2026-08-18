@@ -86,22 +86,55 @@ export interface Member {
 /**
  * One student on one evening.
  *
- * `state` is the disposition; late and early are separate marks because they
- * co-occur. `minutes` is time actually in the room, which is what the Sustain
- * hours arithmetic wants.
+ * `state` is the whole disposition. `other` carries its explanation in `note`
+ * ("leaving early for dentist") and the Worker will not accept it without one.
+ * `excused`, `arrived_late`, `left_early` and `minutes` were retired in
+ * migrations/0005_attendance.sql, which has the reasoning.
  */
-export type AttendanceState = 'present' | 'absent' | 'excused';
+export type AttendanceState = 'present' | 'absent' | 'other';
 
 export interface AttendanceRecord {
   id: string;
   member_id: string;
   state: AttendanceState;
-  arrived_late: number;
-  left_early: number;
-  minutes: number | null;
   note: string | null;
   recorded_by: string | null;
   recorded_at: number;
+}
+
+/** open | done | dropped, mirroring ACTION_STATUSES in worker/lib/meetings.ts. */
+export type ActionStatus = 'open' | 'done' | 'dropped';
+
+/**
+ * One line on a coach's private list for a meeting.
+ *
+ * "Pay registration." "Email Jamie's mum." "Follow up with John about his
+ * behaviour at meetings." Not team tasks and not notes — one adult's own
+ * responsibilities, some of them about a named student, which is why the routes
+ * are coach-and-mentor only rather than merely hidden from students.
+ *
+ * `assignee_member_id` exists in the schema and is never written by the UI: the
+ * only people who can READ this list are coaches and mentors, so assigning an
+ * item to a student would create an assignment they can never see. The column is
+ * kept for a future shared-action-items feature.
+ */
+export interface ActionItem {
+  id: string;
+  meeting_id: string;
+  text: string;
+  assignee_member_id: string | null;
+  due_at: number | null;
+  status: ActionStatus;
+  task_id: string | null;
+  created_by: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+/** An action item carrying its meeting, for the cross-season dashboard rollup. */
+export interface OpenActionItem extends ActionItem {
+  meeting_title: string;
+  meeting_starts_at: number;
 }
 
 export interface Board {
@@ -211,7 +244,7 @@ export interface Meeting {
  */
 export interface MeetingSummary extends Meeting {
   attendance_count: number;
-  block_count: number;
+  doc_count: number;
   flagged_count: number;
 }
 
@@ -239,31 +272,54 @@ export interface MeetingSeries {
 }
 
 /**
- * A block is the unit of a meeting's notes AND the unit of portfolio flagging.
- * Those are the same thing on purpose: "flag this paragraph", "flag this
- * picture" and "flag this decision" are one gesture against one row.
+ * One note document.
+ *
+ * `content` is TipTap/ProseMirror JSON as a string — the editor's own format,
+ * stored inert. `content_text` is the server's plain-text projection of it, which
+ * is what search and portfolio excerpts read; the client never writes it.
+ *
+ * `rev` is the compare-and-swap token. Send back the one you last saw and a save
+ * that would overwrite somebody else's answers 409 instead. It is a counter and
+ * not a timestamp because timestamps here are whole seconds, and two people
+ * typing in the same second is the case that matters.
  */
-export type BlockKind =
-  | 'heading'
-  | 'paragraph'
-  | 'bullet'
-  | 'decision'
-  | 'action'
-  | 'image';
-
-export interface NoteBlock {
+export interface NoteDoc {
   id: string;
-  meeting_id: string;
-  /** REAL, sparse. Inserting between two blocks is a one-row write. */
+  parent_doc_id: string | null;
+  /** null means the document stands on its own rather than belonging to a meeting. */
+  meeting_id: string | null;
+  /** REAL, sparse. Dropping a document between two siblings is a one-row write. */
   position: number;
-  kind: BlockKind;
-  text: string;
-  media_id: string | null;
-  source_agenda_item_id: string | null;
-  created_by_member_id: string | null;
-  updated_by_member_id: string | null;
+  title: string;
+  content: string;
+  content_text: string;
+  rev: number;
+  created_by: string | null;
+  updated_by: string | null;
   created_at: number;
   updated_at: number;
+}
+
+/**
+ * A document in the tree, without its body.
+ *
+ * The sidebar draws forty titles; shipping forty bodies to do it is the N+1's fat
+ * cousin. `content_bytes` is what lets a row show that a page is still empty.
+ */
+export interface NoteDocSummary {
+  id: string;
+  parent_doc_id: string | null;
+  meeting_id: string | null;
+  position: number;
+  title: string;
+  content_bytes: number;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: number;
+  updated_at: number;
+  /** Joined, so the tree can group by meeting without a second request. */
+  meeting_title?: string | null;
+  meeting_starts_at?: number | null;
 }
 
 export interface AgendaItem {
@@ -295,17 +351,16 @@ export const WEEKDAYS: { id: number; short: string; label: string }[] = [
  * A flag saying "this might belong in the portfolio", plus a judgement about it.
  *
  * Source-agnostic from the start so the Awards screen and the outreach log can
- * feed the same inbox later without a schema change. `meeting_block` covers
- * three of the four things the product asks students to be able to flag — a
- * paragraph, a picture, and a decision or action entry — because all three are
- * blocks. `meeting` covers the fourth: the whole page.
+ * feed the same inbox later without a schema change. `note_doc` is the unit now:
+ * flagging used to be per PARAGRAPH, which is why note blocks existed as rows at
+ * all, and it is now per document. `meeting` covers a whole evening.
  *
- * This is the single source of truth for whether something is flagged; blocks
+ * This is the single source of truth for whether something is flagged; documents
  * carry no `flagged_at` of their own, so a mark cannot drift from its record.
  */
 export type CandidateSourceType =
   | 'meeting'
-  | 'meeting_block'
+  | 'note_doc'
   | 'media'
   | 'task'
   | 'outreach_event';

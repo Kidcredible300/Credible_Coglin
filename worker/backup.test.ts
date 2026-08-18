@@ -58,7 +58,7 @@ describe('nightly backup', () => {
       expect.arrayContaining([
         'meeting_series',
         'meeting_agenda_items',
-        'meeting_note_blocks',
+        'note_docs',
         'meeting_attendance',
         'meeting_action_items',
         'portfolio_candidates',

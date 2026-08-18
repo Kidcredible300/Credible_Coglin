@@ -1,4 +1,4 @@
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import * as api from '@/lib/api';
 import { useAsync } from '@/lib/useAsync';
 import {
@@ -7,12 +7,14 @@ import {
   formatHours,
   formatLongDate,
   formatTime,
+  monthOf,
   relativeDays,
 } from '@/lib/format';
 import { PageHeader } from '@/components/PageHeader';
 import { SeasonSpine } from '@/components/SeasonSpine';
 import { StatTile } from '@/components/StatTile';
 import { EvidenceMeter } from '@/components/EvidenceMeter';
+import { MeetingCalendar } from '@/components/meetings/MeetingCalendar';
 import { Skeleton } from '@/components/Skeleton';
 import { useSession } from '@/lib/session';
 import type { AwardKey } from '@/types';
@@ -29,7 +31,8 @@ const AWARD_LABELS: Record<AwardKey, string> = {
 };
 
 export default function Dashboard() {
-  const { team } = useSession();
+  const { team, member } = useSession();
+  const navigate = useNavigate();
   const now = api.now();
   const season = useAsync(api.getCurrentSeason);
   const calendar = useAsync(api.listCalendar);
@@ -37,6 +40,21 @@ export default function Dashboard() {
   const outreach = useAsync(api.listOutreach);
   const criteria = useAsync(api.listAwardCriteria);
   const meetings = useAsync(() => api.listMeetings());
+
+  /**
+   * The coach's own follow-ups, gated at the FETCH and not just the render.
+   *
+   * GET /api/action-items is coach-and-mentor only and answers 403 to everyone
+   * else. `useAsync` fires unconditionally, so calling it for a student would put
+   * this page into an error state for a section that student is not supposed to
+   * know exists — the privacy gate would announce itself. Resolving to an empty
+   * list keeps the request from being made at all.
+   */
+  const canManage = member.role === 'coach' || member.role === 'mentor';
+  const coachItems = useAsync(
+    () => (canManage ? api.listActionItems('open') : Promise.resolve([])),
+    [canManage],
+  );
 
   /**
    * The next one, not the first one.
@@ -196,6 +214,43 @@ export default function Dashboard() {
 
           <div className="space-y-8">
             {/* Next meeting */}
+            {/* A compact month reads as SHAPE: which nights this month have
+                something on them, and where today sits in that pattern. Neither
+                the season spine (whole-season scale) nor the Next meeting card
+                (one event) answers that. No arrows — the Dashboard declines to be
+                a second place where "which month am I looking at" can be wrong,
+                and every cell tap means one thing: go to the calendar, on that
+                day. */}
+            <section>
+              <div className="mb-3 flex items-baseline justify-between">
+                <h2 className="u-eyebrow">This month</h2>
+                <Link
+                  to="/meetings?view=calendar"
+                  className="text-muted-foreground hover:text-foreground text-xs underline underline-offset-2"
+                >
+                  Open calendar
+                </Link>
+              </div>
+              {meetings.status === 'loading' ? (
+                <Skeleton className="h-64" />
+              ) : (
+                /* Rendered on `ready` even with zero meetings, deliberately: the
+                   same lesson the Next meeting card below already learned. An
+                   empty grid is a real answer and still shows where today is; a
+                   skeleton there is a loading bar that never resolves. */
+                <MeetingCalendar
+                  meetings={meetings.data ?? []}
+                  now={now}
+                  month={monthOf(now)}
+                  density="compact"
+                  selectedDay={null}
+                  onSelectDay={(day) =>
+                    navigate(`/meetings?view=calendar&day=${day}`)
+                  }
+                />
+              )}
+            </section>
+
             <section>
               <h2 className="u-eyebrow mb-3">Next meeting</h2>
               <div className="bg-card border-border rounded-lg border p-4">
@@ -260,6 +315,58 @@ export default function Dashboard() {
                   )}
               </ul>
             </section>
+
+            {/* The coach's own follow-ups, across every meeting. Same dot, tone
+                and relativeDays vocabulary as "Needs attention" above, so the two
+                read as one system rather than two lists that happen to be
+                adjacent. */}
+            {canManage && (
+              <section>
+                <div className="mb-3 flex items-baseline justify-between">
+                  <h2 className="u-eyebrow">Your to-do</h2>
+                  <span className="text-muted-foreground text-xs">coaches only</span>
+                </div>
+                <ul className="bg-card border-border divide-border divide-y rounded-lg border">
+                  {coachItems.status === 'loading' && (
+                    <li className="p-4">
+                      <Skeleton className="h-16" />
+                    </li>
+                  )}
+                  {(coachItems.data ?? []).slice(0, 5).map((item) => (
+                    <li key={item.id} className="flex items-start gap-3 px-4 py-3">
+                      <span
+                        className={
+                          item.due_at !== null && item.due_at < now
+                            ? 'bg-destructive mt-1.5 size-1.5 shrink-0 rounded-[1px]'
+                            : 'bg-primary mt-1.5 size-1.5 shrink-0 rounded-[1px]'
+                        }
+                        aria-hidden
+                      />
+                      <Link
+                        to={`/meetings/${item.meeting_id}`}
+                        className="focus-visible:ring-ring min-w-0 flex-1 text-sm focus-visible:ring-2 focus-visible:outline-none"
+                      >
+                        {item.text}
+                        <span className="text-muted-foreground block text-xs">
+                          {item.meeting_title}
+                        </span>
+                      </Link>
+                      <span className="text-muted-foreground shrink-0 text-xs">
+                        {item.due_at !== null ? relativeDays(item.due_at, now) : ''}
+                      </span>
+                    </li>
+                  ))}
+                  {/* An empty list is a real answer, not a slow one — the same
+                      lesson the Next meeting card above already learned. */}
+                  {coachItems.status === 'ready' &&
+                    (coachItems.data ?? []).length === 0 && (
+                      <li className="text-muted-foreground px-4 py-6 text-center text-sm">
+                        Nothing on your list.
+                      </li>
+                    )}
+                </ul>
+              </section>
+            )}
           </div>
         </div>
       </div>

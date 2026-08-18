@@ -70,3 +70,119 @@ export function initials(name: string): string {
     .map((p) => p[0]?.toUpperCase() ?? '')
     .join('');
 }
+
+// ------------------------------------------------------------------- calendar
+
+/**
+ * A month, as a calendar fact rather than an instant. `m` is 1-12, mirroring
+ * LocalDate in worker/lib/tz.ts so both sides count months the same way.
+ */
+export interface CalendarMonth {
+  y: number;
+  m: number;
+}
+
+/**
+ * Which calendar day an instant falls on, as the integer YYYYMMDD.
+ *
+ * A day is an integer here and never a Date, for three reasons. It is the same
+ * encoding the schema already uses for `meetings.series_slot` (see toSlot in
+ * worker/lib/tz.ts), so client and server describe "which day" identically.
+ * Integers compare, sort and key React lists with no allocation. And an array of
+ * 42 Date objects invites epoch arithmetic across a DST boundary, which is
+ * exactly the silent failure worker/lib/tz.ts exists to prevent.
+ *
+ * This reads the browser's zone, deliberately, because that is the zone every
+ * other function in this file formats in. A grid bucketed by the TEAM's timezone
+ * wrapping rows formatted in the viewer's would print a cell saying Tuesday
+ * around a row saying Wednesday, about the same meeting — worse than either
+ * consistent choice. Making it zone-aware is one optional parameter here plus the
+ * same argument threaded through the four formatters above, and it needs
+ * `timezone` added to the session payload (worker/routes/auth.ts) because
+ * Session['team'] does not carry it. That is its own commit: it touches auth.
+ */
+export function dayKey(epochSeconds: number): number {
+  const d = toDate(epochSeconds);
+  return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+}
+
+export function monthOf(epochSeconds: number): CalendarMonth {
+  const d = toDate(epochSeconds);
+  return { y: d.getFullYear(), m: d.getMonth() + 1 };
+}
+
+/** The month containing a YYYYMMDD day. */
+export function monthOfDay(day: number): CalendarMonth {
+  return { y: Math.floor(day / 10000), m: Math.floor((day % 10000) / 100) };
+}
+
+/** Month arithmetic that rolls the year. Date.UTC normalises m = 0 and m = 13. */
+export function addMonths({ y, m }: CalendarMonth, delta: number): CalendarMonth {
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+  return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1 };
+}
+
+/**
+ * The month's cells as YYYYMMDD day keys: six whole weeks, always.
+ *
+ * All arithmetic goes through Date.UTC. A calendar date has no timezone in it, so
+ * the safe place to add days to one is the only place with no DST — the same
+ * rule, for the same reason, as addLocalDay in worker/lib/tz.ts.
+ *
+ * There is no month-length table and no leap-year branch: passing a day index
+ * past the end of a month to Date.UTC normalises it into the next one, so
+ * February gets 28 or 29 for free and 2100 — divisible by 100, not a leap year —
+ * is right without anybody having to remember the rule.
+ *
+ * SIX rows, not five-or-six. A grid that is 5 rows in November and 6 in December
+ * changes height when you press the arrow, which moves everything below it; on a
+ * phone that means the day list you were reading jumps out from under your thumb
+ * mid-tap. About half of all months pay for one mostly-grey trailing row, and a
+ * control that does not move is worth more than that row.
+ *
+ * Week starts Sunday. Not Intl.Locale#getWeekInfo: it is not reliably present,
+ * and worse, it would put the grid out of step with WEEKDAYS in types.ts and with
+ * MeetingSeries.days_of_week, which are already 0 = Sunday. A calendar starting
+ * Monday while the recurrence picker starts Sunday is a bug that only ever shows
+ * up as a mis-click.
+ */
+export function monthGrid(y: number, m: number, weekStartsOn = 0): number[] {
+  const lead = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() - weekStartsOn + 7) % 7;
+  const cells: number[] = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(Date.UTC(y, m - 1, 1 - lead + i));
+    cells.push(
+      d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate(),
+    );
+  }
+  return cells;
+}
+
+/**
+ * "September 2026".
+ *
+ * `timeZone: 'UTC'` is load-bearing. This Date is UTC midnight on the 1st, and in
+ * any negative-offset zone — which is every zone an FTC team is in — default local
+ * formatting prints the PREVIOUS month, so a September grid gets an "August 2026"
+ * header. One option, and the header stops lying.
+ */
+export function formatMonthTitle({ y, m }: CalendarMonth): string {
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(undefined, {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/** "Tuesday, September 8" — a day cell's accessible name. */
+export function formatDayName(day: number): string {
+  const y = Math.floor(day / 10000);
+  const m = Math.floor((day % 10000) / 100);
+  const d = day % 100;
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}

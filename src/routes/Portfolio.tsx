@@ -77,7 +77,10 @@ export default function Portfolio() {
       photos: list.filter(
         (c) => c.preview?.kind === 'image' || c.source_type === 'media',
       ).length,
-      decisions: list.filter((c) => c.preview?.kind === 'decision').length,
+      /* This tile used to count `decision` blocks. That kind is gone with the block
+         editor, and nothing else in the schema means "a decision" — so rather than
+         showing a permanent zero, it counts what there now is: flagged pages. */
+      documents: list.filter((c) => c.source_type === 'note_doc').length,
       pages: list.filter((c) => c.source_type === 'meeting').length,
     }),
     [list],
@@ -107,7 +110,7 @@ export default function Portfolio() {
         <div className="grid grid-cols-2 gap-3 lg:max-w-2xl lg:grid-cols-4">
           <StatTile value={counts.total} label="Flagged" />
           <StatTile value={counts.photos} label="Photos" />
-          <StatTile value={counts.decisions} label="Decisions" />
+          <StatTile value={counts.documents} label="Documents" />
           <StatTile value={counts.pages} label="Whole meetings" />
         </div>
 
@@ -165,7 +168,9 @@ export default function Portfolio() {
               const excerpt =
                 candidate.source_type === 'meeting'
                   ? (preview?.title ?? 'A whole meeting')
-                  : (preview?.text ?? preview?.caption ?? '');
+                  : candidate.source_type === 'note_doc'
+                    ? (preview?.excerpt ?? '')
+                    : (preview?.text ?? preview?.caption ?? '');
               // A photo's media id comes through whether it was flagged as a
               // block in a meeting or straight from the library.
               const mediaId =
@@ -182,7 +187,9 @@ export default function Portfolio() {
                     <Badge variant="secondary">
                       {candidate.source_type === 'meeting'
                         ? 'Whole meeting'
-                        : (KIND_LABEL[preview?.kind ?? ''] ?? 'Note')}
+                        : candidate.source_type === 'note_doc'
+                          ? (preview?.title ?? 'Document')
+                          : (KIND_LABEL[preview?.kind ?? ''] ?? 'Note')}
                     </Badge>
                     <span className="text-muted-foreground tabular flex-1 font-mono text-xs">
                       {formatLongDate(when)}
@@ -218,14 +225,23 @@ export default function Portfolio() {
                       moment anyone still remembers what it was. */}
                   {isPhoto && !excerpt && !candidate.source_deleted && (
                     <p className="text-muted-foreground mt-2 text-xs italic">
-                      No caption — add one in the meeting while you still
-                      remember what this was.
+                      No caption — add one while you still remember what this was.
                     </p>
                   )}
 
                   {/* The link back is what makes the inbox trustworthy: you can
-                      always see what a fragment meant in context. */}
-                  {meetingId && (
+                      always see what a fragment meant in context. A document goes to
+                      the document — a standalone one has no meeting to open. */}
+                  {candidate.source_type === 'note_doc' &&
+                    !candidate.source_deleted && (
+                      <Link
+                        to={`/notes/${candidate.source_id}`}
+                        className="text-primary-ink focus-visible:ring-ring mt-2 inline-flex min-h-11 items-center text-xs focus-visible:ring-2 focus-visible:outline-none"
+                      >
+                        {preview?.title ?? 'Open the document'} →
+                      </Link>
+                    )}
+                  {candidate.source_type !== 'note_doc' && meetingId && (
                     <Link
                       to={`/meetings/${meetingId}`}
                       className="text-primary-ink focus-visible:ring-ring mt-2 inline-flex min-h-11 items-center text-xs focus-visible:ring-2 focus-visible:outline-none"
