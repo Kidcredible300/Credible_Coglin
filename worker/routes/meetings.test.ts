@@ -9,6 +9,7 @@ import {
   whoami,
 } from './_helpers';
 import { partsInZone } from '../lib/tz';
+import { MEETING_KINDS } from '../lib/meetings';
 
 beforeAll(() => {
   stubResend();
@@ -96,6 +97,28 @@ describe('meetings CRUD', () => {
     expect(meeting.kind).toBe('drive_practice');
     expect(meeting.location).toBe('Cafeteria');
     expect(meeting.ends_at).toBe(start + 90 * 60);
+  });
+
+  it('accepts every meeting kind it claims to support', async () => {
+    // The guard for a real bug: `general` was added to the MeetingKind union but
+    // not to the array isMeetingKind() checks, so the dropdown offered it and
+    // the server answered 400. Iterating the declared list means a kind that is
+    // declared but not accepted fails here rather than in a coach's face.
+    const cookie = await signUpCoach(4800);
+    const start = (await seasonStart(cookie)) + 7 * 86400;
+
+    for (const kind of MEETING_KINDS) {
+      const { status, body } = await callJson<{ meeting: Meeting; error?: string }>(
+        '/api/meetings',
+        {
+          method: 'POST',
+          cookie,
+          body: JSON.stringify({ starts_at: start, kind }),
+        },
+      );
+      expect(status, `kind ${kind} -> ${body.error ?? 'ok'}`).toBe(201);
+      expect(body.meeting.kind).toBe(kind);
+    }
   });
 
   it('rejects nonsense input', async () => {
