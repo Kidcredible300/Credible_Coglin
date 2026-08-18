@@ -12,6 +12,27 @@
  * choosing a board mid-sentence while somebody is still talking is exactly the
  * friction that stops anything being written down. Promotion is a later,
  * deliberate act.
+ *
+ * ACTION ITEMS ARE COACH-PRIVATE, and every action-item route below says so with
+ * `requireRole('coach', 'mentor')` rather than `denyRole('viewer')`. That is
+ * deliberately the opposite of the argument in lib/tenancy.ts:111-125, so here
+ * is why that argument does not reach this case.
+ *
+ * It is about a COLLABORATION surface — notes, flags, board tasks — where the
+ * cost of a positive list is that a fifth role added next season is silently
+ * denied everywhere with no error and no failing test, and where being wrong
+ * toward "included" is cheap. This is the inverse. The contents are "follow up
+ * with John about his behaviour at meetings": one adult's private note about a
+ * named minor. Being wrong toward "included" is a silent leak, with no error and
+ * no failing test either. Default deny is correct exactly when the wrong answer
+ * is a leak rather than an inconvenience.
+ *
+ * Attendance keeps `denyRole('viewer')` on the self check-in, because that one
+ * is a collaboration surface and the argument above does apply to it.
+ *
+ * This is a DATA boundary, not a UI one. The GETs are gated too, which is also
+ * why `action_items` left the GET /api/meetings/:id payload — a student could
+ * simply read the whole list there while every route in this file answered 403.
  */
 import { Hono } from 'hono';
 import { nowSeconds, uuid } from '../lib/crypto';
@@ -37,8 +58,7 @@ records.get('/meetings/:id/attendance', requireMember, async (c) => {
   const { teamId } = authOf(c);
   const { results } = await c.env.DB.prepare(
     `SELECT a.id AS id, a.member_id AS member_id, a.state AS state,
-            a.arrived_late AS arrived_late, a.left_early AS left_early,
-            a.minutes AS minutes, a.note AS note, a.recorded_by AS recorded_by,
+            a.note AS note, a.recorded_by AS recorded_by,
             a.recorded_at AS recorded_at, m.display_name AS display_name
        FROM meeting_attendance a
        JOIN members m ON m.id = a.member_id AND m.team_id = a.team_id
@@ -105,16 +125,35 @@ records.put(
       if (!isAttendanceState(entry.state)) {
         return c.json({ error: 'invalid_state' }, 400);
       }
+      const note = optionalString(entry.note, 500);
+      // `other` without a detail is the one shape the enum cannot police. It
+      // reads as more information than `absent` and carries less, and the note
+      // is the entire reason `other` exists — so it is required here rather
+      // than merely encouraged in the panel, where a stale bundle can skip it.
+      //
+      // This rejects the WHOLE roll, not the rows before it: statements are
+      // accumulated and batched only after every entry validates. That is the
+      // behaviour you want — a half-written roll that a coach then retries
+      // double-writes the half that worked — and it means the client has to be
+      // told which row is at fault, hence member_id riding along. Still a code
+      // and not a sentence: the panel owns the copy.
+      if (entry.state === 'other' && note === null) {
+        return c.json({ error: 'missing_detail', member_id: memberId }, 400);
+      }
       statements.push(
         c.env.DB.prepare(
+          // arrived_late, left_early and minutes still exist as columns and are
+          // deliberately not written — 0005 explains why they were kept. A body
+          // that still carries them is IGNORED rather than rejected, the same
+          // call normaliseSubTeams makes in lib/roles.ts: a coach on yesterday's
+          // JS bundle must still be able to take the roll.
           `INSERT INTO meeting_attendance
-             (id, team_id, meeting_id, member_id, state, arrived_late, left_early,
-              minutes, note, recorded_by, recorded_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, team_id, meeting_id, member_id, state, note, recorded_by,
+              recorded_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (team_id, meeting_id, member_id) DO UPDATE SET
-             state = excluded.state, arrived_late = excluded.arrived_late,
-             left_early = excluded.left_early, minutes = excluded.minutes,
-             note = excluded.note, recorded_by = excluded.recorded_by,
+             state = excluded.state, note = excluded.note,
+             recorded_by = excluded.recorded_by,
              recorded_at = excluded.recorded_at`,
         ).bind(
           uuid(),
@@ -122,10 +161,7 @@ records.put(
           meetingId,
           memberId,
           entry.state,
-          entry.arrived_late ? 1 : 0,
-          entry.left_early ? 1 : 0,
-          boundedInt(entry.minutes, 0, 1440),
-          optionalString(entry.note, 500),
+          note,
           member.id,
           now,
         ),
@@ -135,8 +171,7 @@ records.put(
     if (statements.length > 0) await c.env.DB.batch(statements);
 
     const { results } = await c.env.DB.prepare(
-      `SELECT id, member_id, state, arrived_late, left_early, minutes, note,
-              recorded_by, recorded_at
+      `SELECT id, member_id, state, note, recorded_by, recorded_at
          FROM meeting_attendance WHERE team_id = ? AND meeting_id = ?`,
     )
       .bind(teamId, meetingId)
@@ -158,12 +193,11 @@ records.post(
   requireMember,
   denyRole('viewer'),
   async (c) => {
-    const body = (await readJson(c)) ?? {};
-    // A student checking in is always present. `arrived_late` is the honest way
-    // to say "I got here at 6:20" without pretending lateness is a different
-    // kind of attendance.
-    const arrivedLate = body.arrived_late ? 1 : 0;
-
+    // The body is ignored in full, not just its member_id. A student checking
+    // in is always plain `present`: `other` needs free text about a person, and
+    // a student typing prose onto their own attendance record is a new PII
+    // surface rather than a convenience. If somebody left early, the coach
+    // records it.
     const { teamId, member } = authOf(c);
     const meetingId = c.req.param('id');
     const meeting = await c.env.DB.prepare(
@@ -173,27 +207,39 @@ records.post(
       .first();
     if (!meeting) return c.json({ error: 'not_found' }, 404);
 
+    // A self check-in never clears a coach's note: DO UPDATE touches `state`
+    // and the recorder only. If a coach wrote "leaving early for dentist" and
+    // the student then taps "I'm here", the sentence survives — losing it would
+    // make the button a way to quietly overwrite the coach.
     await c.env.DB.prepare(
       `INSERT INTO meeting_attendance
-         (id, team_id, meeting_id, member_id, state, arrived_late, recorded_by, recorded_at)
-       VALUES (?, ?, ?, ?, 'present', ?, ?, ?)
+         (id, team_id, meeting_id, member_id, state, recorded_by, recorded_at)
+       VALUES (?, ?, ?, ?, 'present', ?, ?)
        ON CONFLICT (team_id, meeting_id, member_id) DO UPDATE SET
-         state = 'present', arrived_late = excluded.arrived_late,
-         recorded_by = excluded.recorded_by, recorded_at = excluded.recorded_at`,
+         state = 'present', recorded_by = excluded.recorded_by,
+         recorded_at = excluded.recorded_at`,
     )
-      .bind(uuid(), teamId, meetingId, member.id, arrivedLate, member.id, nowSeconds())
+      .bind(uuid(), teamId, meetingId, member.id, member.id, nowSeconds())
       .run();
 
-    return c.json({
-      ok: true,
-      member_id: member.id,
-      state: 'present',
-      arrived_late: arrivedLate === 1,
-    });
+    return c.json({ ok: true, member_id: member.id, state: 'present' });
   },
 );
 
-/** The Sustain rollup: who is still turning up in February. Index-covered. */
+/**
+ * The Sustain rollup: who is still turning up in February.
+ *
+ * `excused` used to be its own column here and 0003 called it "exactly the
+ * distinction a Sustain narrative needs". It is gone: `other` is the bucket, and
+ * the narrative gets written from the notes rather than from a count. That is a
+ * real loss and it is the price of a roll that actually gets taken — see
+ * migrations/0005_attendance.sql.
+ *
+ * arrived_late, left_early and minutes leave the projection too. Nothing ever
+ * consumed them (this endpoint has no caller in the client at all), so the
+ * honest move is to stop reporting numbers that would now always be zero rather
+ * than to keep three columns of decoration.
+ */
 records.get('/attendance/summary', requireMember, async (c) => {
   const { teamId } = authOf(c);
 
@@ -207,11 +253,8 @@ records.get('/attendance/summary', requireMember, async (c) => {
   const { results } = await c.env.DB.prepare(
     `SELECT m.id AS member_id, m.display_name AS display_name,
             SUM(CASE WHEN a.state = 'present' THEN 1 ELSE 0 END) AS present,
-            SUM(CASE WHEN a.state = 'excused' THEN 1 ELSE 0 END) AS excused,
             SUM(CASE WHEN a.state = 'absent' THEN 1 ELSE 0 END) AS absent,
-            SUM(COALESCE(a.arrived_late, 0)) AS arrived_late,
-            SUM(COALESCE(a.left_early, 0)) AS left_early,
-            SUM(COALESCE(a.minutes, 0)) AS minutes
+            SUM(CASE WHEN a.state = 'other' THEN 1 ELSE 0 END) AS other
        FROM members m
        LEFT JOIN meeting_attendance a
          ON a.member_id = m.id AND a.team_id = m.team_id
@@ -227,28 +270,79 @@ records.get('/attendance/summary', requireMember, async (c) => {
 
 // ------------------------------------------------------------- action items
 
-records.get('/action-items', requireMember, async (c) => {
-  const { teamId } = authOf(c);
-  const url = new URL(c.req.url);
-  const status = url.searchParams.get('status');
-  if (status !== null && !isActionStatus(status)) {
-    return c.json({ error: 'invalid_status' }, 400);
-  }
-  const { results } = await c.env.DB.prepare(
-    `SELECT ${ACTION_COLUMNS} FROM meeting_action_items
-      WHERE team_id = ? AND (? IS NULL OR status = ?)
-      ORDER BY created_at DESC LIMIT 300`,
-  )
-    .bind(teamId, status, status)
-    .all();
-  return c.json({ action_items: results });
-});
+/**
+ * Every item across the season, for the coach's own dashboard.
+ *
+ * The meeting is joined rather than fetched per row, for the same reason
+ * meetings.ts counts attendance in a subquery: the caller wants one list with
+ * enough context to act on, and N+1 on a dashboard is N+1 on every page load.
+ */
+records.get(
+  '/action-items',
+  requireMember,
+  requireRole('coach', 'mentor'),
+  async (c) => {
+    const { teamId } = authOf(c);
+    const url = new URL(c.req.url);
+    const status = url.searchParams.get('status');
+    if (status !== null && !isActionStatus(status)) {
+      return c.json({ error: 'invalid_status' }, 400);
+    }
+    const { results } = await c.env.DB.prepare(
+      `SELECT ai.id AS id, ai.meeting_id AS meeting_id, ai.text AS text,
+              ai.assignee_member_id AS assignee_member_id, ai.due_at AS due_at,
+              ai.status AS status, ai.task_id AS task_id,
+              ai.created_by AS created_by, ai.created_at AS created_at,
+              ai.updated_at AS updated_at,
+              m.title AS meeting_title, m.starts_at AS meeting_starts_at
+         FROM meeting_action_items ai
+         JOIN meetings m ON m.id = ai.meeting_id AND m.team_id = ai.team_id
+        WHERE ai.team_id = ? AND (? IS NULL OR ai.status = ?)
+        -- Undated last, not first. COALESCE to the far future is what "no
+        -- deadline" means to somebody scanning a list for what is overdue.
+        ORDER BY COALESCE(ai.due_at, 4102444800) ASC, ai.created_at DESC
+        LIMIT 300`,
+    )
+      .bind(teamId, status, status)
+      .all();
+    return c.json({ action_items: results });
+  },
+);
+
+/**
+ * One meeting's action items.
+ *
+ * Its own route rather than a field on GET /meetings/:id — see the header. The
+ * rejected alternative was returning an empty array to non-coaches from that
+ * payload, which hides the privacy rule from the call site: the next person to
+ * add a column to that batch would not know the rule exists, and no test would
+ * catch the regression, because an empty array and a leaked array are both
+ * perfectly valid JSON.
+ *
+ * Done items sort last so the list reads as what is left to do.
+ */
+records.get(
+  '/meetings/:id/action-items',
+  requireMember,
+  requireRole('coach', 'mentor'),
+  async (c) => {
+    const { teamId } = authOf(c);
+    const { results } = await c.env.DB.prepare(
+      `SELECT ${ACTION_COLUMNS} FROM meeting_action_items
+        WHERE team_id = ? AND meeting_id = ?
+        ORDER BY status = 'done', COALESCE(due_at, 4102444800) ASC, created_at ASC`,
+    )
+      .bind(teamId, c.req.param('id'))
+      .all();
+    return c.json({ action_items: results });
+  },
+);
 
 records.post(
   '/meetings/:id/action-items',
   sameOriginOnly,
   requireMember,
-  denyRole('viewer'),
+  requireRole('coach', 'mentor'),
   async (c) => {
     const body = await readJson(c);
     if (!body) return c.json({ error: 'invalid_body' }, 400);
@@ -300,7 +394,7 @@ records.patch(
   '/meetings/:id/action-items/:aid',
   sameOriginOnly,
   requireMember,
-  denyRole('viewer'),
+  requireRole('coach', 'mentor'),
   async (c) => {
     const body = await readJson(c);
     if (!body) return c.json({ error: 'invalid_body' }, 400);
@@ -353,7 +447,7 @@ records.delete(
   '/meetings/:id/action-items/:aid',
   sameOriginOnly,
   requireMember,
-  denyRole('viewer'),
+  requireRole('coach', 'mentor'),
   async (c) => {
     const { teamId } = authOf(c);
     const result = await c.env.DB.prepare(
@@ -382,7 +476,7 @@ records.post(
   '/meetings/:id/action-items/:aid/promote',
   sameOriginOnly,
   requireMember,
-  denyRole('viewer'),
+  requireRole('coach', 'mentor'),
   async (c) => {
     const body = (await readJson(c)) ?? {};
     const { teamId } = authOf(c);

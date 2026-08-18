@@ -51,12 +51,21 @@ export const MEETING_STATUSES = ['planned', 'held', 'cancelled'] as const;
 export type MeetingStatus = (typeof MEETING_STATUSES)[number];
 
 /**
- * The disposition only. Whether somebody turned up late or ducked out early are
- * separate marks (`arrived_late`, `left_early`) rather than states, because they
- * co-occur — "twenty minutes late and gone before the end" is one student on one
- * evening, and an enum forces a lie about which half mattered.
+ * The disposition, and now the whole of it.
+ *
+ * `excused` is retired and so are the `arrived_late` / `left_early` marks that
+ * used to sit on top of these. The comment that stood here defended splitting
+ * them out because they co-occur, which is true and was still the wrong trade —
+ * see migrations/0005_attendance.sql for the argument. `other` plus the row's
+ * `note` carries every case they carried, in a form a coach will actually fill
+ * in on a phone.
+ *
+ * `other` REQUIRES a note. An unexplained `other` says strictly less about a
+ * student than `absent` does while looking like it says more, and there is no
+ * CHECK constraint to stop one — so routes/records.ts enforces it, and so must
+ * any future writer.
  */
-export const ATTENDANCE_STATES = ['present', 'absent', 'excused'] as const;
+export const ATTENDANCE_STATES = ['present', 'absent', 'other'] as const;
 export type AttendanceState = (typeof ATTENDANCE_STATES)[number];
 
 export const BLOCK_KINDS = [

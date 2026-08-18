@@ -86,19 +86,17 @@ export interface Member {
 /**
  * One student on one evening.
  *
- * `state` is the disposition; late and early are separate marks because they
- * co-occur. `minutes` is time actually in the room, which is what the Sustain
- * hours arithmetic wants.
+ * `state` is the whole disposition. `other` carries its explanation in `note`
+ * ("leaving early for dentist") and the Worker will not accept it without one.
+ * `excused`, `arrived_late`, `left_early` and `minutes` were retired in
+ * migrations/0005_attendance.sql, which has the reasoning.
  */
-export type AttendanceState = 'present' | 'absent' | 'excused';
+export type AttendanceState = 'present' | 'absent' | 'other';
 
 export interface AttendanceRecord {
   id: string;
   member_id: string;
   state: AttendanceState;
-  arrived_late: number;
-  left_early: number;
-  minutes: number | null;
   note: string | null;
   recorded_by: string | null;
   recorded_at: number;

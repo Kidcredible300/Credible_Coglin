@@ -144,10 +144,15 @@ describe('meetings CRUD', () => {
     }
   });
 
-  it('carries the attendance timing marks, which the roll seeds itself from', async () => {
+  it('carries the attendance note, which the roll seeds itself from', async () => {
     // Regression: this projection once omitted arrived_late and left_early. The
     // save worked and the season rollup was right, so the only visible symptom
     // was both marks quietly vanishing whenever anybody reloaded the meeting.
+    //
+    // Those columns are retired, but the regression is not — it just moved to
+    // `note`, which is now where the whole explanation of an `other` lives. Drop
+    // it from this projection and every "leaving early for dentist" disappears
+    // on reload while the save keeps looking correct.
     const cookie = await signUpCoach(4106);
     const meeting = await createMeeting(cookie, {
       starts_at: (await seasonStart(cookie)) + 7 * 86400,
@@ -161,19 +166,18 @@ describe('meetings CRUD', () => {
         entries: [
           {
             member_id: me.member_id,
-            state: 'present',
-            arrived_late: true,
-            left_early: true,
+            state: 'other',
+            note: 'Leaving early for dentist',
           },
         ],
       }),
     });
 
     const { body } = await callJson<{
-      attendance: { arrived_late: number; left_early: number }[];
+      attendance: { state: string; note: string | null }[];
     }>(`/api/meetings/${meeting.id}`, { cookie });
-    expect(body.attendance[0].arrived_late).toBe(1);
-    expect(body.attendance[0].left_early).toBe(1);
+    expect(body.attendance[0].state).toBe('other');
+    expect(body.attendance[0].note).toBe('Leaving early for dentist');
   });
 
   it('returns every section of a meeting in one read', async () => {
@@ -188,17 +192,13 @@ describe('meetings CRUD', () => {
     );
     expect(status).toBe(200);
     // The meeting screen cannot render without all of these, so they arrive
-    // together rather than as five follow-up requests.
+    // together rather than as four follow-up requests.
+    //
+    // `action_items` is deliberately absent: it is coach-private and has its own
+    // gated route. If it reappears here, the leak is back — see the comment on
+    // the batch in routes/meetings.ts.
     expect(Object.keys(body).sort()).toEqual(
-      [
-        'action_items',
-        'agenda',
-        'attendance',
-        'attendees',
-        'blocks',
-        'candidates',
-        'meeting',
-      ].sort(),
+      ['agenda', 'attendance', 'attendees', 'blocks', 'candidates', 'meeting'].sort(),
     );
   });
 

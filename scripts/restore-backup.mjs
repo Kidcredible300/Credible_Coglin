@@ -41,6 +41,22 @@ const FIRST = ['users', 'teams', 'seasons', 'members'];
  *  would hand back live credentials that everyone has since rotated past. */
 const SKIP = ['sessions', 'd1_migrations', '_cf_KV'];
 
+/**
+ * Columns that older dumps carry and the schema no longer has.
+ *
+ * The restore path builds its INSERT column list from the keys of each dumped
+ * row, so a column that has since been dropped names something that does not
+ * exist and the whole statement fails. Backups are kept for 30 days
+ * (worker/backup.ts), which is how long a schema change stays able to break a
+ * restore — and `npm run db:restore:sql` is on the release checklist precisely so
+ * that does not go unnoticed.
+ *
+ * This is also why 0005 KEPT meeting_attendance.arrived_late, left_early and
+ * minutes rather than dropping them: nothing has to be listed here if nothing
+ * gets dropped, and an unwritten column costs nothing.
+ */
+const GONE = { meeting_action_items: ['block_id'] };
+
 function literal(value) {
   if (value === null || value === undefined) return 'NULL';
   if (typeof value === 'number') return String(value);
@@ -71,8 +87,9 @@ for (const table of ordered) {
   const rows = backup.tables[table] ?? [];
   if (rows.length === 0) continue;
   lines.push(`-- ${table}: ${rows.length} row(s)`);
+  const gone = GONE[table] ?? [];
   for (const row of rows) {
-    const cols = Object.keys(row);
+    const cols = Object.keys(row).filter((c) => !gone.includes(c));
     const values = cols.map((c) => literal(row[c])).join(', ');
     lines.push(
       `INSERT INTO "${table}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${values});`,
