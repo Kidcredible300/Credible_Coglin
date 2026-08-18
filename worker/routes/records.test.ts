@@ -349,38 +349,26 @@ describe('action items and promotion', () => {
     expect(tasks?.n).toBe(1);
   });
 
-  it('carries the nearest decision forward as the task decision log', async () => {
-    // Free Think-award material: the reasoning was typed at the moment it
+  it('no longer carries a decision forward, which is a deliberate loss', async () => {
+    // This test used to assert that promoting an action item seeded
+    // tasks.decision_log from the nearest preceding `decision` note block — free
+    // Think-award material, because the reasoning was typed at the moment it
     // happened rather than reconstructed in March.
+    //
+    // Blocks are gone (0006) and so is the seam it relied on: an action item being
+    // a line in a note stream. Inverted rather than deleted, so the gap is
+    // recorded as a decision somebody made instead of a feature that quietly
+    // stopped working. Restoring it needs a typed decision node in the editor plus
+    // a Worker-side extractor.
     const coach = await signUpCoach(8202);
     const meetingId = await makeMeeting(coach);
-
-    await call(`/api/meetings/${meetingId}/blocks`, {
-      method: 'POST',
-      cookie: coach,
-      body: JSON.stringify({
-        kind: 'decision',
-        text: 'Went with the 4-bar because the elevator kept binding',
-      }),
-    });
-    const actionBlock = await callJson<{ block: { id: string } }>(
-      `/api/meetings/${meetingId}/blocks`,
-      {
-        method: 'POST',
-        cookie: coach,
-        body: JSON.stringify({ kind: 'action', text: 'Reprint the bracket' }),
-      },
-    );
 
     const item = await callJson<{ action_item: { id: string } }>(
       `/api/meetings/${meetingId}/action-items`,
       {
         method: 'POST',
         cookie: coach,
-        body: JSON.stringify({
-          text: 'Reprint the bracket',
-          block_id: actionBlock.body.block.id,
-        }),
+        body: JSON.stringify({ text: 'Order the bearings' }),
       },
     );
 
@@ -388,9 +376,8 @@ describe('action items and promotion', () => {
       `/api/meetings/${meetingId}/action-items/${item.body.action_item.id}/promote`,
       { method: 'POST', cookie: coach, body: '{}' },
     );
-    expect(promoted.body.task.decision_log).toBe(
-      'Went with the 4-bar because the elevator kept binding',
-    );
+    expect(promoted.status).toBe(201);
+    expect(promoted.body.task.decision_log).toBeNull();
   });
 
   it('keeps action items away from students, on read as well as write', async () => {

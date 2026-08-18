@@ -198,7 +198,7 @@ describe('meetings CRUD', () => {
     // gated route. If it reappears here, the leak is back — see the comment on
     // the batch in routes/meetings.ts.
     expect(Object.keys(body).sort()).toEqual(
-      ['agenda', 'attendance', 'attendees', 'blocks', 'candidates', 'meeting'].sort(),
+      ['agenda', 'attendance', 'attendees', 'candidates', 'docs', 'meeting'].sort(),
     );
   });
 
@@ -484,18 +484,16 @@ describe('series edits apply to the future only', () => {
     const withContent = future[1];
     const detached = future[2];
 
-    // Seeded straight into D1 because the blocks API is phase 2. Using the real
-    // route would be better and will replace this then; what must not happen is
-    // skipping the case, because "somebody typed notes into next Tuesday before
-    // the schedule changed" is exactly the data this policy exists to protect.
-    const team = await whoami(cookie);
-    await env.DB.prepare(
-      `INSERT INTO meeting_note_blocks
-         (id, team_id, meeting_id, position, kind, text, created_at, updated_at)
-       VALUES (?, ?, ?, 1024, 'paragraph', 'Typed this early', 0, 0)`,
-    )
-      .bind(crypto.randomUUID(), team.team_id, withContent.id)
-      .run();
+    // Through the real route now. This used to be a direct INSERT with a comment
+    // saying the notes API was phase 2 and would replace it — it exists, so it has.
+    // What must not happen is skipping the case: "somebody typed notes into next
+    // Tuesday before the schedule changed" is exactly the data this policy protects.
+    const typed = await callJson<{ doc: { id: string } }>('/api/notes', {
+      method: 'POST',
+      cookie,
+      body: JSON.stringify({ meeting_id: withContent.id, title: 'Typed this early' }),
+    });
+    expect(typed.status).toBe(201);
 
     await callJson(`/api/meetings/${detached.id}`, {
       method: 'PATCH',
@@ -531,12 +529,12 @@ describe('series edits apply to the future only', () => {
     // The one somebody had already typed into survives as cancelled rather than
     // being deleted. Moving Tuesdays to Wednesdays must never destroy notes.
     expect(stillThere.get(withContent.id)?.status).toBe('cancelled');
-    const keptBlocks = await env.DB.prepare(
-      'SELECT COUNT(*) AS n FROM meeting_note_blocks WHERE meeting_id = ?',
+    const keptDocs = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM note_docs WHERE meeting_id = ? AND deleted_at IS NULL',
     )
       .bind(withContent.id)
       .first<{ n: number }>();
-    expect(keptBlocks?.n).toBe(1);
+    expect(keptDocs?.n).toBe(1);
 
     // Past occurrences are never rewritten.
     const past = before.body.meetings.filter((m) => m.starts_at <= Date.now() / 1000);

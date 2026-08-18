@@ -138,16 +138,16 @@ meetings.get('/', requireMember, async (c) => {
   const { results } = await c.env.DB.prepare(
     `SELECT ${meetingColumns('m')},
             COUNT(a.id) AS attendance_count,
-            (SELECT COUNT(*) FROM meeting_note_blocks b
-              WHERE b.team_id = m.team_id AND b.meeting_id = m.id
-                AND b.deleted_at IS NULL) AS block_count,
+            (SELECT COUNT(*) FROM note_docs d
+              WHERE d.team_id = m.team_id AND d.meeting_id = m.id
+                AND d.deleted_at IS NULL) AS doc_count,
             (SELECT COUNT(*) FROM portfolio_candidates pc
               WHERE pc.team_id = m.team_id
                 AND ((pc.source_type = 'meeting' AND pc.source_id = m.id)
-                  OR (pc.source_type = 'meeting_block' AND pc.source_id IN
-                      (SELECT b2.id FROM meeting_note_blocks b2
-                        WHERE b2.team_id = m.team_id AND b2.meeting_id = m.id
-                          AND b2.deleted_at IS NULL)))) AS flagged_count
+                  OR (pc.source_type = 'note_doc' AND pc.source_id IN
+                      (SELECT d2.id FROM note_docs d2
+                        WHERE d2.team_id = m.team_id AND d2.meeting_id = m.id
+                          AND d2.deleted_at IS NULL)))) AS flagged_count
        FROM meetings m
        -- Present only. The state 'late' used to be listed here and had been
        -- unreachable since it left ATTENDANCE_STATES: a value in a query that no
@@ -271,7 +271,7 @@ meetings.get('/:id', requireMember, async (c) => {
   // gated route. Do not add them back: this payload is readable by the whole
   // team, and a role-conditional field on it would hide that rule from whoever
   // edits this batch next.
-  const [agenda, blocks, attendance, candidates] = await c.env.DB.batch([
+  const [agenda, meetingDocs, attendance, candidates] = await c.env.DB.batch([
     c.env.DB.prepare(
       `SELECT id, meeting_id, position, title, detail, owner_member_id,
               minutes_planned, sub_team, done, created_by, created_at, updated_at
@@ -280,11 +280,14 @@ meetings.get('/:id', requireMember, async (c) => {
         ORDER BY position ASC`,
     ).bind(teamId, id),
     c.env.DB.prepare(
-      `SELECT id, meeting_id, position, kind, text, media_id, source_agenda_item_id,
-              created_by_member_id, updated_by_member_id, created_at, updated_at
-         FROM meeting_note_blocks
+      // Summaries only, no `content` — the meeting screen lists its documents and
+      // links to them, it does not render them. Same projection as DOC_SUMMARY in
+      // routes/docs.ts, for the same reason.
+      `SELECT id, parent_doc_id, meeting_id, position, title, created_by,
+              updated_by, created_at, updated_at, LENGTH(content) AS content_bytes
+         FROM note_docs
         WHERE team_id = ? AND meeting_id = ? AND deleted_at IS NULL
-        ORDER BY position ASC`,
+        ORDER BY parent_doc_id ASC, position ASC`,
     ).bind(teamId, id),
     c.env.DB.prepare(
       // `note` belongs here, not only in the attendance route's own
@@ -302,8 +305,8 @@ meetings.get('/:id', requireMember, async (c) => {
          FROM portfolio_candidates
         WHERE team_id = ?
           AND ((source_type = 'meeting' AND source_id = ?)
-            OR (source_type = 'meeting_block' AND source_id IN
-                (SELECT id FROM meeting_note_blocks
+            OR (source_type = 'note_doc' AND source_id IN
+                (SELECT id FROM note_docs
                   WHERE team_id = ? AND meeting_id = ?)))`,
     ).bind(teamId, id, teamId, id),
   ]);
@@ -317,7 +320,7 @@ meetings.get('/:id', requireMember, async (c) => {
   return c.json({
     meeting,
     agenda: agenda.results,
-    blocks: blocks.results,
+    docs: meetingDocs.results,
     attendance: attendance.results,
     candidates: candidates.results,
     // Derived, so the `Meeting.attendees` shape declared in src/types.ts keeps
@@ -481,23 +484,23 @@ meetings.delete(
     if (!force) {
       const content = await c.env.DB.prepare(
         `SELECT
-           (SELECT COUNT(*) FROM meeting_note_blocks
-             WHERE team_id = ?1 AND meeting_id = ?2 AND deleted_at IS NULL) AS blocks,
+           (SELECT COUNT(*) FROM note_docs
+             WHERE team_id = ?1 AND meeting_id = ?2 AND deleted_at IS NULL) AS docs,
            (SELECT COUNT(*) FROM meeting_attendance
              WHERE team_id = ?1 AND meeting_id = ?2) AS attendance,
            (SELECT COUNT(*) FROM meeting_action_items
              WHERE team_id = ?1 AND meeting_id = ?2) AS action_items`,
       )
         .bind(teamId, id)
-        .first<{ blocks: number; attendance: number; action_items: number }>();
+        .first<{ docs: number; attendance: number; action_items: number }>();
 
       const total =
-        (content?.blocks ?? 0) + (content?.attendance ?? 0) + (content?.action_items ?? 0);
+        (content?.docs ?? 0) + (content?.attendance ?? 0) + (content?.action_items ?? 0);
       if (total > 0) {
         return c.json(
           {
             error: 'meeting_has_content',
-            blocks: content?.blocks ?? 0,
+            docs: content?.docs ?? 0,
             attendance: content?.attendance ?? 0,
             action_items: content?.action_items ?? 0,
           },
@@ -506,18 +509,19 @@ meetings.delete(
       }
     }
 
-    // Candidates are polymorphic and cannot cascade, so they are cleared here
-    // explicitly — both the flag on the meeting itself and any flag on one of
-    // its blocks. Missing this is how the inbox fills with rows pointing at
-    // nothing.
+    // Candidates are polymorphic and cannot cascade, so the flag on the meeting
+    // itself is cleared here explicitly. Missing this is how the inbox fills with
+    // rows pointing at nothing.
+    //
+    // Flags on this meeting's DOCUMENTS are deliberately left alone, which is the
+    // opposite of what the block version did. note_docs.meeting_id is ON DELETE
+    // SET NULL, so the documents survive as standalone — deleting the Nov 11
+    // meeting must not shred the notes taken that evening — and a flag on a
+    // document that still exists still points at something real.
     await c.env.DB.batch([
       c.env.DB.prepare(
         `DELETE FROM portfolio_candidates
-          WHERE team_id = ?1
-            AND ((source_type = 'meeting' AND source_id = ?2)
-              OR (source_type = 'meeting_block' AND source_id IN
-                  (SELECT id FROM meeting_note_blocks
-                    WHERE team_id = ?1 AND meeting_id = ?2)))`,
+          WHERE team_id = ? AND source_type = 'meeting' AND source_id = ?`,
       ).bind(teamId, id),
       c.env.DB.prepare('DELETE FROM meetings WHERE id = ? AND team_id = ?').bind(id, teamId),
     ]);

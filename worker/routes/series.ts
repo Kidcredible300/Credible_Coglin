@@ -489,9 +489,9 @@ series.patch(
     // Only occurrences that are still genuinely "the rule's to manage".
     const { results: mutable } = await c.env.DB.prepare(
       `SELECT m.id, m.series_slot,
-              (SELECT COUNT(*) FROM meeting_note_blocks b
-                WHERE b.team_id = m.team_id AND b.meeting_id = m.id
-                  AND b.deleted_at IS NULL) AS blocks,
+              (SELECT COUNT(*) FROM note_docs d
+                WHERE d.team_id = m.team_id AND d.meeting_id = m.id
+                  AND d.deleted_at IS NULL) AS docs,
               (SELECT COUNT(*) FROM meeting_attendance a
                 WHERE a.team_id = m.team_id AND a.meeting_id = m.id) AS attendance,
               (SELECT COUNT(*) FROM meeting_action_items ai
@@ -506,7 +506,7 @@ series.patch(
       .all<{
         id: string;
         series_slot: number;
-        blocks: number;
+        docs: number;
         attendance: number;
         action_items: number;
       }>();
@@ -518,7 +518,7 @@ series.patch(
     for (const occurrence of mutable) {
       if (wantedSlots.has(occurrence.series_slot)) continue;
       const hasContent =
-        occurrence.blocks > 0 || occurrence.attendance > 0 || occurrence.action_items > 0;
+        occurrence.docs > 0 || occurrence.attendance > 0 || occurrence.action_items > 0;
       if (hasContent) {
         statements.push(
           c.env.DB.prepare(
@@ -660,9 +660,9 @@ series.delete(
       `SELECT COUNT(*) AS n FROM meetings m
         WHERE m.team_id = ? AND m.series_id = ? AND m.starts_at > ?
           AND m.status = 'planned' AND m.detached_at IS NULL
-          AND NOT EXISTS (SELECT 1 FROM meeting_note_blocks b
-                           WHERE b.team_id = m.team_id AND b.meeting_id = m.id
-                             AND b.deleted_at IS NULL)
+          AND NOT EXISTS (SELECT 1 FROM note_docs d
+                           WHERE d.team_id = m.team_id AND d.meeting_id = m.id
+                             AND d.deleted_at IS NULL)
           AND NOT EXISTS (SELECT 1 FROM meeting_attendance a
                            WHERE a.team_id = m.team_id AND a.meeting_id = m.id)
           AND NOT EXISTS (SELECT 1 FROM meeting_action_items ai
@@ -676,9 +676,9 @@ series.delete(
         `DELETE FROM meetings
           WHERE team_id = ? AND series_id = ? AND starts_at > ?
             AND status = 'planned' AND detached_at IS NULL
-            AND NOT EXISTS (SELECT 1 FROM meeting_note_blocks b
-                             WHERE b.team_id = meetings.team_id AND b.meeting_id = meetings.id
-                               AND b.deleted_at IS NULL)
+            AND NOT EXISTS (SELECT 1 FROM note_docs d
+                             WHERE d.team_id = meetings.team_id AND d.meeting_id = meetings.id
+                               AND d.deleted_at IS NULL)
             AND NOT EXISTS (SELECT 1 FROM meeting_attendance a
                              WHERE a.team_id = meetings.team_id AND a.meeting_id = meetings.id)
             AND NOT EXISTS (SELECT 1 FROM meeting_action_items ai

@@ -68,16 +68,6 @@ export type MeetingStatus = (typeof MEETING_STATUSES)[number];
 export const ATTENDANCE_STATES = ['present', 'absent', 'other'] as const;
 export type AttendanceState = (typeof ATTENDANCE_STATES)[number];
 
-export const BLOCK_KINDS = [
-  'heading',
-  'paragraph',
-  'bullet',
-  'decision',
-  'action',
-  'image',
-] as const;
-export type BlockKind = (typeof BLOCK_KINDS)[number];
-
 export const ACTION_STATUSES = ['open', 'done', 'dropped'] as const;
 export type ActionStatus = (typeof ACTION_STATUSES)[number];
 
@@ -91,7 +81,7 @@ export type CandidateState = (typeof CANDIDATE_STATES)[number];
 
 export const CANDIDATE_SOURCE_TYPES = [
   'meeting',
-  'meeting_block',
+  'note_doc',
   'media',
   'task',
   'outreach_event',
@@ -118,7 +108,6 @@ const oneOf =
 export const isMeetingKind = oneOf(MEETING_KINDS);
 export const isMeetingStatus = oneOf(MEETING_STATUSES);
 export const isAttendanceState = oneOf(ATTENDANCE_STATES);
-export const isBlockKind = oneOf(BLOCK_KINDS);
 export const isActionStatus = oneOf(ACTION_STATUSES);
 export const isCandidateState = oneOf(CANDIDATE_STATES);
 export const isCandidateSourceType = oneOf(CANDIDATE_SOURCE_TYPES);

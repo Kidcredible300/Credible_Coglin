@@ -49,7 +49,7 @@ import {
 
 const records = new Hono<AppEnv>();
 
-const ACTION_COLUMNS = `id, meeting_id, block_id, text, assignee_member_id, due_at,
+const ACTION_COLUMNS = `id, meeting_id, doc_id, text, assignee_member_id, due_at,
         status, task_id, created_by, created_at, updated_at`;
 
 // --------------------------------------------------------------- attendance
@@ -363,7 +363,7 @@ records.post(
     const now = nowSeconds();
     await c.env.DB.prepare(
       `INSERT INTO meeting_action_items
-         (id, team_id, meeting_id, block_id, text, assignee_member_id, due_at,
+         (id, team_id, meeting_id, doc_id, text, assignee_member_id, due_at,
           status, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`,
     )
@@ -371,7 +371,7 @@ records.post(
         id,
         teamId,
         meetingId,
-        optionalString(body.block_id, 64),
+        optionalString(body.doc_id, 64),
         text,
         optionalString(body.assignee_member_id, 64),
         boundedInt(body.due_at, 0, 4_102_444_800),
@@ -467,10 +467,15 @@ records.delete(
  * team has none — removing the "which board?" question is the entire point of
  * keeping capture and planning separate in the first place.
  *
- * `decision_log` is seeded from the nearest preceding decision block, which is
- * free Think-award material and the reason `decision` exists as a block kind at
- * all: the reasoning was typed at the moment it happened, and this is where it
- * gets carried forward instead of reconstructed in March.
+ * `decision_log` used to be seeded from the nearest preceding `decision` note
+ * block, which was free Think-award material. That table is gone (0006) and so is
+ * the seam it depended on — an action item being a line in a note stream. The
+ * field stays on `tasks`, where TaskDialog still renders it, and is now written by
+ * hand or not at all.
+ *
+ * Restoring it is real work rather than a rename: it needs a typed decision node
+ * in the editor plus a Worker-side extractor. Flagged rather than quietly dropped,
+ * because it is award material and somebody should choose to lose it.
  */
 records.post(
   '/meetings/:id/action-items/:aid/promote',
@@ -483,7 +488,7 @@ records.post(
     const meetingId = c.req.param('id');
 
     const item = await c.env.DB.prepare(
-      `SELECT id, text, assignee_member_id, due_at, task_id, block_id
+      `SELECT id, text, assignee_member_id, due_at, task_id
          FROM meeting_action_items
         WHERE id = ? AND team_id = ? AND meeting_id = ?`,
     )
@@ -494,7 +499,6 @@ records.post(
         assignee_member_id: string | null;
         due_at: number | null;
         task_id: string | null;
-        block_id: string | null;
       }>();
     if (!item) return c.json({ error: 'not_found' }, 404);
     if (item.task_id) return c.json({ error: 'already_promoted', task_id: item.task_id }, 409);
@@ -535,20 +539,10 @@ records.post(
       );
     }
 
-    // The reasoning nearest above the action item, if somebody wrote one down.
-    let decisionLog: string | null = null;
-    if (item.block_id) {
-      const decision = await c.env.DB.prepare(
-        `SELECT text FROM meeting_note_blocks
-          WHERE team_id = ? AND meeting_id = ? AND kind = 'decision'
-            AND deleted_at IS NULL
-            AND position < (SELECT position FROM meeting_note_blocks WHERE id = ?)
-          ORDER BY position DESC LIMIT 1`,
-      )
-        .bind(teamId, meetingId, item.block_id)
-        .first<{ text: string }>();
-      decisionLog = decision?.text ?? null;
-    }
+    // No decision_log seed any more — see the note on this route. Left as an
+    // explicit null rather than dropped from the INSERT, so the column and the
+    // gap are both visible to whoever restores this.
+    const decisionLog: string | null = null;
 
     const meeting = await c.env.DB.prepare(
       'SELECT title, starts_at FROM meetings WHERE id = ? AND team_id = ?',

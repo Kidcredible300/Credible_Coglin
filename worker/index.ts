@@ -6,7 +6,8 @@ import { boards } from './routes/boards';
 import { candidates } from './routes/candidates';
 import { media, mediaFiles } from './routes/media';
 import { meetings } from './routes/meetings';
-import { notes } from './routes/notes';
+import { meetingNotes } from './routes/notes';
+import { docs } from './routes/docs';
 import { records } from './routes/records';
 import { series } from './routes/series';
 import { scheduled } from './backup';
@@ -69,11 +70,15 @@ app.get('/api/health', async (c) => {
 
 app.route('/api/auth', auth);
 app.route('/api/invites', invites);
-// `notes` is mounted first because it claims the deeper paths under a meeting
-// (/:id/blocks, /:id/agenda); `meetings` owns /:id itself.
-app.route('/api/meetings', notes);
+// `meetingNotes` is mounted first because it claims the deeper paths under a
+// meeting (/:id/agenda, /:id/start); `meetings` owns /:id itself.
+app.route('/api/meetings', meetingNotes);
 app.route('/api/meetings', meetings);
 app.route('/api/series', series);
+// Note DOCUMENTS are their own top-level resource, not a meeting sub-resource: a
+// document may belong to no meeting, and its id must not change when it is
+// dragged to another one. See the header of routes/docs.ts.
+app.route('/api/notes', docs);
 app.route('/api/portfolio', candidates);
 app.route('/api/media', media);
 // Both declare full paths ('/boards', '/meetings/:id/attendance') rather than a

@@ -38,7 +38,7 @@ const CANDIDATE_COLUMNS = `id, source_type, source_id, suggested_award, why, sta
 /** Where each source type lives, so a flag can be checked against the team. */
 const SOURCE_TABLES: Record<CandidateSourceType, string> = {
   meeting: 'meetings',
-  meeting_block: 'meeting_note_blocks',
+  note_doc: 'note_docs',
   media: 'media',
   task: 'tasks',
   outreach_event: 'outreach_events',
@@ -53,7 +53,16 @@ async function sourceExists(
   // A student's face is not award evidence. Roster photos are refused as
   // candidates rather than filtered out of the inbox afterwards, so a
   // portfolio can never come to contain one by way of a guessed media id.
-  const extra = type === 'media' ? " AND kind <> 'roster_photo'" : '';
+  //
+  // A soft-deleted document cannot be newly flagged either. An EXISTING flag on
+  // one stays listed and says so — that rule lives in the inbox below, because
+  // the flag was one person's decision and the delete was another person's.
+  const extra =
+    type === 'media'
+      ? " AND kind <> 'roster_photo'"
+      : type === 'note_doc'
+        ? ' AND deleted_at IS NULL'
+        : '';
   const row = await db
     .prepare(
       `SELECT id FROM ${SOURCE_TABLES[type]} WHERE id = ? AND team_id = ?${extra}`,
@@ -219,19 +228,23 @@ candidates.get('/candidates', requireMember, async (c) => {
 
   const previews = new Map<string, Record<string, unknown>>();
 
-  const blockIds = byType.get('meeting_block') ?? [];
-  if (blockIds.length > 0) {
-    const { results: blocks } = await c.env.DB.prepare(
-      `SELECT b.id AS id, b.kind AS kind, b.text AS text, b.media_id AS media_id,
-              b.deleted_at AS deleted_at, b.meeting_id AS meeting_id,
+  const docIds = byType.get('note_doc') ?? [];
+  if (docIds.length > 0) {
+    // The excerpt comes from content_text, which is why that column exists: the
+    // body is ProseMirror JSON and no amount of SQL will pull a readable sentence
+    // out of it. LEFT JOIN because a document need not belong to a meeting.
+    const { results: rows } = await c.env.DB.prepare(
+      `SELECT d.id AS id, d.title AS title,
+              SUBSTR(d.content_text, 1, 280) AS excerpt,
+              d.deleted_at AS deleted_at, d.meeting_id AS meeting_id,
               m.title AS meeting_title, m.starts_at AS meeting_starts_at
-         FROM meeting_note_blocks b
-         JOIN meetings m ON m.id = b.meeting_id AND m.team_id = b.team_id
-        WHERE b.team_id = ? AND b.id IN (${blockIds.map(() => '?').join(',')})`,
+         FROM note_docs d
+         LEFT JOIN meetings m ON m.id = d.meeting_id AND m.team_id = d.team_id
+        WHERE d.team_id = ? AND d.id IN (${docIds.map(() => '?').join(',')})`,
     )
-      .bind(teamId, ...blockIds)
+      .bind(teamId, ...docIds)
       .all<Record<string, unknown>>();
-    for (const block of blocks) previews.set(`meeting_block:${block.id}`, block);
+    for (const row of rows) previews.set(`note_doc:${row.id}`, row);
   }
 
   const meetingIds = byType.get('meeting') ?? [];
