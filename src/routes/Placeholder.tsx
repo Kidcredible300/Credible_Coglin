@@ -10,8 +10,6 @@ import { PageHeader } from '@/components/PageHeader';
 const NOTES: Record<string, string> = {
   '/awards':
     'Per-award criteria checklists from the Competition Manual §6, each item linked to evidence, with the Inspire triad view.',
-  '/calendar':
-    'League meets, qualifiers, the portfolio print deadline, and the FIRST Leadership nomination window.',
   '/budget':
     'Income and expense lines, sponsor tiers and thank-you status — the progress tracking Sustain requires.',
 };
