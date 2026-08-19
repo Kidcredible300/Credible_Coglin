@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Check, Plus, Trash2 } from 'lucide-react';
+import { Check, ClipboardCheck, Plus, Trash2 } from 'lucide-react';
 import * as api from '@/lib/api';
 import { useAsync } from '@/lib/useAsync';
 import { Button } from '@/components/ui/button';
@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/Skeleton';
 import { isOverdue, relativeDays } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import type { ActionItem } from '@/types';
+import type { ActionItem, Board } from '@/types';
 
 /**
  * The coach's own to-do list for this meeting.
@@ -31,6 +31,8 @@ const ERROR_COPY: Record<string, string> = {
   missing_text: 'Type something first.',
   invalid_body: 'Type something first.',
   not_found: 'That item is already gone.',
+  already_promoted: 'That one is already on a board.',
+  no_current_season: 'This team has no current season, so a task has nowhere to live.',
 };
 
 export function CoachActionItems({ meetingId }: { meetingId: string }) {
@@ -45,6 +47,9 @@ export function CoachActionItems({ meetingId }: { meetingId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [showDone, setShowDone] = useState(false);
   const now = api.now();
+  // Needed only to decide whether promoting has to ASK which board. With one
+  // board (or none — the server creates "Action items") there is nothing to ask.
+  const boards = useAsync(api.listBoards);
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
@@ -93,6 +98,31 @@ export function CoachActionItems({ meetingId }: { meetingId: string }) {
         reload();
       } catch (err) {
         setError(err instanceof Error ? err.message : '');
+      }
+    },
+    [meetingId, reload],
+  );
+
+  /**
+   * Turn one coach action item into a board task.
+   *
+   * The plan's "action items convert to board tasks in one click" — the server
+   * side of which has existed since the meeting hub shipped, with nothing
+   * calling it. The 409 guard means a double click is a message, not a second
+   * task, and `meeting_action_items.task_id` is what makes the row show as sent
+   * from then on.
+   */
+  const promote = useCallback(
+    async (item: ActionItem, boardId?: string) => {
+      setError(null);
+      try {
+        await api.promoteActionItem(meetingId, item.id, boardId);
+        reload();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '');
+        // A 409 means it is already on a board; reload so the row stops
+        // offering to send it again.
+        if (err instanceof Error && err.message === 'already_promoted') reload();
       }
     },
     [meetingId, reload],
@@ -164,6 +194,8 @@ export function CoachActionItems({ meetingId }: { meetingId: string }) {
               now={now}
               onToggle={() => void toggle(item)}
               onDelete={() => void remove(item)}
+              boards={boards.data ?? []}
+              onPromote={(boardId) => void promote(item, boardId)}
             />
           ))}
         </ul>
@@ -188,6 +220,8 @@ export function CoachActionItems({ meetingId }: { meetingId: string }) {
                   now={now}
                   onToggle={() => void toggle(item)}
                   onDelete={() => void remove(item)}
+                  boards={boards.data ?? []}
+                  onPromote={(boardId) => void promote(item, boardId)}
                 />
               ))}
             </ul>
@@ -212,12 +246,17 @@ function Row({
   now,
   onToggle,
   onDelete,
+  boards,
+  onPromote,
 }: {
   item: ActionItem;
   now: number;
   onToggle: () => void;
   onDelete: () => void;
+  boards: Board[];
+  onPromote: (boardId?: string) => void;
 }) {
+  const [picking, setPicking] = useState(false);
   const isDone = item.status === 'done';
   const late = !isDone && item.due_at !== null && isOverdue(item.due_at, now);
   return (
@@ -252,6 +291,49 @@ function Row({
           {relativeDays(item.due_at, now)}
         </span>
       )}
+
+      {/* Already on a board: say so rather than offering to send it twice. The
+          link back is the attribution the schema keeps on purpose — deleting the
+          task must not erase the record that a meeting produced it. */}
+      {item.task_id !== null ? (
+        <span className="text-muted-foreground shrink-0 text-xs" title="Already a board task">
+          On a board
+        </span>
+      ) : boards.length > 1 && picking ? (
+        <span className="flex shrink-0 flex-wrap items-center gap-1">
+          {boards.map((b) => (
+            <button
+              key={b.id}
+              type="button"
+              onClick={() => {
+                setPicking(false);
+                onPromote(b.id);
+              }}
+              className="focus-visible:ring-ring border-border hover:bg-accent rounded-md border px-2 py-1 text-xs focus-visible:ring-2 focus-visible:outline-none"
+            >
+              {b.name}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setPicking(false)}
+            className="text-muted-foreground px-1 text-xs"
+          >
+            Cancel
+          </button>
+        </span>
+      ) : (
+        <button
+          type="button"
+          aria-label={`Send to a board: ${item.text}`}
+          title="Send to a board"
+          onClick={() => (boards.length > 1 ? setPicking(true) : onPromote())}
+          className="focus-visible:ring-ring text-muted-foreground hover:text-primary-ink flex size-11 shrink-0 items-center justify-center rounded-md focus-visible:ring-2 focus-visible:outline-none md:size-7"
+        >
+          <ClipboardCheck className="size-4" aria-hidden />
+        </button>
+      )}
+
       <button
         type="button"
         aria-label={`Delete: ${item.text}`}
