@@ -586,6 +586,36 @@ export function createBoard(input: { name: string; sub_team?: string | null }): 
   return send<{ board: Board }>('/api/boards', 'POST', input).then((r) => r.board);
 }
 
+export function updateBoard(
+  id: string,
+  patch: { name?: string; sub_team?: string | null; position?: number },
+): Promise<Board> {
+  return send<{ board: Board }>(`/api/boards/${id}`, 'PATCH', patch).then((r) => r.board);
+}
+
+/**
+ * Delete a board.
+ *
+ * Without `force` the server answers 409 `board_has_tasks` and reports how
+ * many, so the UI can ask "delete 12 tasks with it?" instead of destroying a
+ * sub-team's whole season on a mis-click.
+ */
+export function deleteBoard(id: string, force = false): Promise<{ ok: true }> {
+  return send(`/api/boards/${id}${force ? '?force=1' : ''}`, 'DELETE');
+}
+
+/**
+ * The board's revision, for polling.
+ *
+ * `count` is not redundant: MAX(updated_at) cannot see a deletion, so a card
+ * removed while its neighbours were untouched leaves `rev` where it was. The
+ * pair changes on every mutation; either alone does not.
+ */
+export function boardRev(id: string): Promise<{ rev: number; count: number }> {
+  return get<{ rev: number; count: number }>(`/api/boards/${id}/rev`);
+}
+
+
 /**
  * The coach's own open items across the season, for the dashboard.
  *
@@ -726,18 +756,29 @@ export function listAwardCriteria(): Promise<AwardCriterion[]> {
 }
 
 /**
- * Board mutation.
+ * Board mutation — the single write path for everything on the board.
  *
- * The endpoint this always promised now exists. The op shape is unchanged, so
- * the Durable Object (COG-009) can still replay this exact stream to a second
- * viewer later without the write path moving.
+ * The op shape is unchanged, so the Durable Object (COG-009) can still replay
+ * this exact stream to a second viewer later without the write path moving.
  *
- * Fire-and-forget with local state already updated, matching how Boards.tsx
- * applies ops optimistically. A failed op currently just does not persist —
- * rollback is the thing to add when this screen gets real use.
+ * Takes an array as well as a single op, because reordering needs one genuinely
+ * batched case: when the 1024-gap midpoints between two cards are used up, the
+ * client renumbers that whole column at once and the server applies it in one
+ * D1 batch. A half-applied renumber would look to everyone else like somebody
+ * shuffled their board.
+ *
+ * No longer fire-and-forget. The response carries the board's authoritative
+ * task list, which the caller adopts on success and rolls back to on failure —
+ * `void`-ing this promise was hiding real 403s and 409s behind a card that
+ * quietly sprang back on the next reload.
  */
-export function mutateBoard(boardId: string, op: BoardOp): Promise<{ ok: true }> {
-  return send(`/api/boards/${boardId}/mutate`, 'POST', { ops: [op] });
+export function mutateBoard(
+  boardId: string,
+  ops: BoardOp | BoardOp[],
+): Promise<{ ok: true; tasks: Task[] }> {
+  return send(`/api/boards/${boardId}/mutate`, 'POST', {
+    ops: Array.isArray(ops) ? ops : [ops],
+  });
 }
 
 /**
