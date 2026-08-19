@@ -519,10 +519,13 @@ records.post(
         .first();
       if (!board) return c.json({ error: 'not_found' }, 404);
     } else {
+      // Season-scoped: an unscoped pick would promote this season's action
+      // item onto a board from a season that has already ended, where nobody
+      // is looking.
       const fallback = await c.env.DB.prepare(
-        'SELECT id FROM boards WHERE team_id = ? ORDER BY position ASC LIMIT 1',
+        'SELECT id FROM boards WHERE team_id = ? AND season_id = ? ORDER BY position ASC LIMIT 1',
       )
-        .bind(teamId)
+        .bind(teamId, season.id)
         .first<{ id: string }>();
       boardId = fallback?.id ?? null;
     }
