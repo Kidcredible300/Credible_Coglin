@@ -20,17 +20,30 @@
 /* ---------------------------------------------------------------------------
    COGLIN PALETTE
 
-   Derived from the subject's own world rather than a generic SaaS ramp: the
-   orange of field tape marking the competition floor, the blue of the alliance
-   you are assigned to, and the cool grey of aluminium extrusion and shop
-   concrete. Deliberately NOT warm cream — this is a workshop, not a library.
+   Goblin green, carried over from the LilithForge site so the product and the
+   page that sells it finally read as one thing. The ramp derives from the
+   --cog-* block in ~/lilithforge/website/home/styles.css, but it is LIFTED one
+   step: the site only ever puts its #35c26d on a near-black chamber background,
+   whereas this app puts the same green on near-white paper, where it read heavy
+   and dark. --goblin-500 is therefore oklch(0.76 0.17 150) / #4fce74 rather than
+   the site's oklch(0.72 0.17 152) / #35c26d. Same hue family, one stop brighter.
+   If the site is ever retuned to match, that is the value to copy back.
 
-   The load-bearing decision: text on the orange is near-BLACK, not white.
-   That is how real hazard and gaffer tape reads, and it also clears WCAG AA,
-   which white-on-orange at this saturation does not.
+   Alliance blue and alliance red stay. Those are FIRST domain colours the app
+   REPORTS — which alliance a team is assigned to — not branding it chooses.
 
-   COG-020 (the brand skin, blocked on the trademark search) is an edit to this
-   block and nothing else. No component may contain a raw hex.
+   The greys are not neutral. They carry a trace of the green so paper, slab and
+   chrome look like one material under one light. The previous palette played
+   the same trick with blue; this is that hue rotated, with lightness preserved
+   so every contrast ratio measured against the old scheme still holds.
+
+   The load-bearing decision: text on the green fill is near-BLACK, not white.
+   White on green at this lightness is 2.4:1 and fails AA; the green-black is
+   8:1. This survived the hue rotation from the previous palette, and it
+   is the reason --primary and --primary-ink are separate tokens.
+
+   A reskin is an edit to this block and nothing else. No component may contain
+   a raw hex.
 --------------------------------------------------------------------------- */
 
 :root {
@@ -42,96 +55,123 @@
      fixes scrollbars app-wide too. */
   color-scheme: light;
 
-  /* Primitives */
-  --tape-400: oklch(0.78 0.16 55);
-  --tape-500: oklch(0.7 0.19 47); /* field-tape orange, the primary */
-  --tape-600: oklch(0.61 0.19 42);
+  /* Primitives. The goblin ramp holds hue within 4° across all four steps, which
+     is what makes it read as one colour rather than four greens. Lightness is
+     the only axis that really moves, and it is set by what each step has to do:
+     500 is a fill, 700 is text, 400 and 600 are the two ends of the mark. */
+  --goblin-400: oklch(0.86 0.13 154); /* #88eaaa — highlight */
+  --goblin-500: oklch(0.76 0.17 150); /* #4fce74 — goblin green, the primary */
+  --goblin-600: oklch(0.66 0.16 151); /* #2ead5c — hover / pressed */
+  /* The one step that cannot follow the others up. This is --primary-ink, and
+     it has to clear 4.5:1 as TEXT on --background; at L 0.51 it holds 5.2:1,
+     and by L 0.53 the margin is down to 4.8. Brightening the fills does not buy
+     this token any room, so it stays deep on purpose. */
+  --goblin-700: oklch(0.51 0.13 151); /* #137a3d — deep enough to BE text */
   --alliance-500: oklch(0.53 0.19 258); /* alliance blue */
   --alliance-600: oklch(0.45 0.18 258);
-  --goblin-500: oklch(0.72 0.17 152); /* reserved: "ready" */
   --red-alliance: oklch(0.58 0.22 27); /* doubles as destructive */
+  /* Deliberately off-brand: "partial" has to be legible as NOT-ready, so it
+     cannot be a step of the green ramp. Hue 85 is far enough from 152 to
+     separate at a glance and from the greys to not read as absent. */
+  --amber-500: oklch(0.75 0.15 85);
 
   /* INK — the second surface.
 
-     A deep alliance-blue slab used where the app ASSERTS (the sidebar, the
+     A deep forge-green slab used where the app ASSERTS (the sidebar, the
      dashboard's season hero) rather than presents a document. It is what stops
      the product reading as another white-card SaaS dashboard: the chrome is a
      piece of equipment, the content sits on paper.
 
      Deliberately theme-INDEPENDENT. Ink is a surface, not a background — in
      dark mode it sits above the graphite as an elevated panel, exactly as it
-     sits below the paper in light mode. Everything that lands on it is defined
-     as white at an opacity, so one slab colour carries the whole family. */
-  --ink: oklch(0.28 0.06 257);
-  --ink-foreground: oklch(1 0 0);
-  --ink-muted: oklch(0.78 0.025 255); /* secondary text on ink */
-  --ink-subtle: oklch(0.62 0.03 255); /* de-emphasised: "soon" badges */
-  --ink-border: oklch(1 0 0 / 12%);
-  /* The tape red is too dark to read against the slab; this is the same
-     alarm at dark-surface lightness. */
-  --ink-destructive: oklch(0.68 0.2 25);
+     sits below the paper in light mode.
+
+     L 0.44 is the CEILING for this design, not a taste call. The slab carries a
+     three-level text family (foreground / muted / subtle) as light values on a
+     dark ground, and that family runs out of room as the ground rises: by L 0.52
+     --ink-subtle has to reach 0.94 to hold 4.5:1, leaving no separation from
+     --ink-foreground, and past L 0.56 no value clears 4.5:1 at all. --heading is
+     an alias of this token, and it fails AA on paper at 0.56 too. Dark-on-slab
+     text does not become viable until L 0.66, which is a different design (a
+     light sidebar) and would require decoupling --heading first.
+
+     Green also reads heavier than the blue this replaced: the original navy slab
+     sat at this same lightness and looked crisp, where dark green goes toward
+     forest. Holding lightness constant through the hue rotation was right for
+     the contrast maths and wrong for the eye, hence the lift. */
+  --ink: oklch(0.44 0.055 155);
+  --ink-foreground: oklch(1 0 0); /* 7.5:1 on the slab */
+  --ink-muted: oklch(0.9 0.02 155); /* secondary text on ink — 5.6:1 */
+  --ink-subtle: oklch(0.84 0.025 155); /* "soon" badges — 4.7:1 */
+  /* Raised from 12%: a white hairline shows less as the ground lightens. */
+  --ink-border: oklch(1 0 0 / 20%);
+  /* Red and mid-green sit at similar luminance, so this cannot reach 4.5:1 on
+     the slab at any lightness. It is only ever a bar fill (SeasonSpine's alarm),
+     never text, so the 3:1 non-text threshold applies — 0.8 gives 3.1:1. */
+  --ink-destructive: oklch(0.8 0.2 25);
 
   /* Semantic — shadcn's own names, so every primitive is on-brand for free.
      The light neutrals carry a trace of the ink's hue rather than sitting at
      true grey, so paper and slab look like one material under one light. */
-  --background: oklch(0.985 0.003 250);
-  --foreground: oklch(0.25 0.045 257);
+  --background: oklch(0.985 0.004 155);
+  --foreground: oklch(0.25 0.04 155);
   --card: oklch(1 0 0);
   --card-foreground: var(--foreground);
   --popover: oklch(1 0 0);
   --popover-foreground: var(--foreground);
 
-  --primary: var(--tape-500);
-  --primary-foreground: oklch(0.17 0.01 60);
-  /* Tape is vivid enough to carry black text on a fill, but too light to BE
-     text on a light background (2.7:1). This is the same hue taken down to a
-     legible ink for icons, links and rules. Keep both — darkening --primary
-     itself would dull the fills, which are the brand. */
-  --primary-ink: oklch(0.52 0.18 40);
+  --primary: var(--goblin-500);
+  --primary-foreground: oklch(0.17 0.02 152);
+  /* The green is vivid enough to carry black text on a fill, but too light to
+     BE text on a light background (2.7:1). This is the same hue taken down to a
+     legible ink for icons, links and rules — 5.6:1 on --background. Keep both:
+     darkening --primary itself would dull the fills, which are the brand. */
+  --primary-ink: var(--goblin-700);
 
   /* Display type and figures are set in the ink on paper — headings, stat
      values, the team number. A token rather than `.u-display { color }` so
      the same class can go white when it lands ON the slab. */
   --heading: var(--ink);
 
-  --secondary: oklch(0.955 0.006 255);
-  --secondary-foreground: oklch(0.3 0.035 257);
-  --muted: oklch(0.955 0.006 255);
-  --muted-foreground: oklch(0.5 0.025 255);
-  --accent: oklch(0.94 0.008 255);
-  --accent-foreground: oklch(0.26 0.04 257);
+  --secondary: oklch(0.955 0.007 155);
+  --secondary-foreground: oklch(0.3 0.03 155);
+  --muted: oklch(0.955 0.007 155);
+  --muted-foreground: oklch(0.5 0.022 155);
+  --accent: oklch(0.94 0.009 155);
+  --accent-foreground: oklch(0.26 0.035 155);
 
   --destructive: var(--red-alliance);
-  --border: oklch(0.9 0.008 255);
-  --input: oklch(0.9 0.008 255);
-  --ring: var(--tape-500);
+  --border: oklch(0.9 0.009 155);
+  --input: oklch(0.9 0.009 155);
+  --ring: var(--goblin-500);
 
   --info: var(--alliance-500);
 
   /* Evidence readiness. This is the product's signature scale — it appears on
      the award tracker, the portfolio planner and the dashboard, so it gets
-     real tokens rather than ad-hoc greens. */
-  --readiness-none: oklch(0.92 0.006 255);
-  --readiness-partial: var(--tape-500);
+     real tokens rather than ad-hoc greens. Three steps that must survive being
+     seen from across a workshop: absent, started, done. */
+  --readiness-none: oklch(0.92 0.007 155);
+  --readiness-partial: var(--amber-500);
   --readiness-ready: var(--goblin-500);
 
-  --chart-1: var(--tape-500);
+  --chart-1: var(--goblin-500);
   --chart-2: var(--alliance-500);
-  --chart-3: var(--goblin-500);
-  --chart-4: oklch(0.7 0.13 90);
-  --chart-5: oklch(0.55 0.1 300);
+  --chart-3: oklch(0.7 0.13 90);
+  --chart-4: oklch(0.55 0.1 300);
+  --chart-5: oklch(0.65 0.11 200);
 
   /* The sidebar IS the ink slab, so these are aliases rather than a second
      palette. Kept so any shadcn component reaching for sidebar tokens lands
      on the same surface the shell paints. */
   --sidebar: var(--ink);
   --sidebar-foreground: var(--ink-foreground);
-  --sidebar-primary: var(--tape-500);
+  --sidebar-primary: var(--goblin-400);
   --sidebar-primary-foreground: var(--primary-foreground);
   --sidebar-accent: oklch(1 0 0 / 10%);
   --sidebar-accent-foreground: var(--ink-foreground);
   --sidebar-border: var(--ink-border);
-  --sidebar-ring: var(--tape-500);
+  --sidebar-ring: var(--goblin-500);
 
   /* Slightly tighter than shadcn's 0.625rem default: the register is machined
      hardware, not soft consumer app. */
@@ -140,68 +180,69 @@
 
 /* Every light token restated, in the same order — the discipline that keeps a
    light/dark pair honest instead of half-migrated. Shop at night: the surfaces
-   go to cool graphite, the tape stays hot, the alliance blue lifts so it does
-   not sink into the background. */
+   go to graphite, the green stays hot, the alliance blue lifts so it does not
+   sink into the background. */
 [data-theme='dark'] {
   color-scheme: dark;
-  --tape-400: oklch(0.82 0.15 58);
-  --tape-500: oklch(0.74 0.18 50);
-  --tape-600: oklch(0.66 0.19 45);
+  --goblin-400: oklch(0.9 0.12 154);
+  --goblin-500: oklch(0.8 0.16 150);
+  --goblin-600: oklch(0.71 0.16 151);
+  --goblin-700: oklch(0.59 0.13 151);
   --alliance-500: oklch(0.68 0.16 258);
   --alliance-600: oklch(0.58 0.17 258);
-  --goblin-500: oklch(0.76 0.16 152);
   --red-alliance: oklch(0.65 0.2 25);
+  --amber-500: oklch(0.79 0.14 85);
 
-  --background: oklch(0.18 0.008 250);
-  --foreground: oklch(0.95 0.004 250);
-  --card: oklch(0.22 0.009 250);
+  --background: oklch(0.18 0.009 155);
+  --foreground: oklch(0.95 0.005 155);
+  --card: oklch(0.22 0.01 155);
   --card-foreground: var(--foreground);
-  --popover: oklch(0.24 0.009 250);
+  --popover: oklch(0.24 0.01 155);
   --popover-foreground: var(--foreground);
 
-  --primary: var(--tape-500);
-  --primary-foreground: oklch(0.17 0.01 60);
-  /* On graphite the tape is already legible as text (≈7:1), so ink and fill
+  --primary: var(--goblin-500);
+  --primary-foreground: oklch(0.17 0.02 152);
+  /* On graphite the green is already legible as text (≈7:1), so ink and fill
      converge here. */
-  --primary-ink: var(--tape-500);
+  --primary-ink: var(--goblin-500);
 
   /* The ink family is NOT restated — it is theme-independent by design (see
-     :root). Only the heading colour flips: on graphite, ink-blue text would
+     :root). Only the heading colour flips: on graphite, ink-green text would
      sink into the card, so display type reverts to the plain foreground. */
   --heading: var(--foreground);
 
-  --secondary: oklch(0.27 0.009 250);
-  --secondary-foreground: oklch(0.95 0.004 250);
-  --muted: oklch(0.27 0.009 250);
-  --muted-foreground: oklch(0.72 0.011 250);
-  --accent: oklch(0.31 0.011 250);
-  --accent-foreground: oklch(0.96 0.004 250);
+  --secondary: oklch(0.27 0.01 155);
+  --secondary-foreground: oklch(0.95 0.005 155);
+  --muted: oklch(0.27 0.01 155);
+  --muted-foreground: oklch(0.72 0.012 155);
+  --accent: oklch(0.31 0.012 155);
+  --accent-foreground: oklch(0.96 0.005 155);
 
   --destructive: var(--red-alliance);
   --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 16%);
-  --ring: var(--tape-500);
+  --ring: var(--goblin-500);
 
   --info: var(--alliance-500);
 
-  --readiness-none: oklch(0.34 0.01 250);
-  --readiness-partial: var(--tape-500);
+  --readiness-none: oklch(0.34 0.011 155);
+  --readiness-partial: var(--amber-500);
   --readiness-ready: var(--goblin-500);
 
-  --chart-1: var(--tape-500);
+  --chart-1: var(--goblin-500);
   --chart-2: var(--alliance-500);
-  --chart-3: var(--goblin-500);
-  --chart-4: oklch(0.76 0.13 90);
-  --chart-5: oklch(0.66 0.1 300);
+  --chart-3: oklch(0.76 0.13 90);
+  --chart-4: oklch(0.66 0.1 300);
+  --chart-5: oklch(0.72 0.1 200);
 
   --sidebar: var(--ink);
   --sidebar-foreground: var(--ink-foreground);
-  --sidebar-primary: var(--tape-500);
+  --sidebar-primary: var(--goblin-400);
   --sidebar-primary-foreground: var(--primary-foreground);
   --sidebar-accent: oklch(1 0 0 / 10%);
   --sidebar-accent-foreground: var(--ink-foreground);
   --sidebar-border: var(--ink-border);
-  --sidebar-ring: var(--tape-500);
+  --sidebar-ring: var(--goblin-500);
 }
 
 @theme inline {
@@ -239,10 +280,10 @@
   --color-ink-border: var(--ink-border);
   --color-ink-destructive: var(--ink-destructive);
 
-  --color-tape: var(--tape-500);
-  --color-tape-strong: var(--tape-600);
   --color-alliance: var(--alliance-500);
   --color-goblin: var(--goblin-500);
+  --color-goblin-strong: var(--goblin-600);
+  --color-amber: var(--amber-500);
 
   --color-readiness-none: var(--readiness-none);
   --color-readiness-partial: var(--readiness-partial);
@@ -312,12 +353,52 @@
     @apply text-muted-foreground;
   }
 
-  /* The structural device: field tape. A solid chunky bar marks things —
-     the active nav item, the edge of a section header. Never a hairline,
+  /* The structural device. A solid chunky bar in the brand colour marks things
+     — the active nav item, the edge of a section header. Never a hairline,
      never decorative. */
-  .u-tape {
+  .u-bar {
     @apply bg-primary;
     border-radius: 1px;
+  }
+
+  /* The same device, tuned for the ink slab. Now that the slab sits at L 0.44,
+     --primary (the 500) only clears 3.7:1 against it — enough for a non-text
+     marker, but visibly soft for the thing that tells you which row is active.
+     The 400 step restores the punch. Use this INSTEAD of .u-bar on ink; on
+     paper .u-bar is still correct. */
+  .u-bar-ink {
+    @apply bg-sidebar-primary;
+    border-radius: 1px;
+  }
+
+  /* The product mark: the cog + G monogram, lifted from the official lockup
+     (website/home/assets/coglin-mark.svg, itself cut from Coglin PR #5).
+
+     Masked rather than drawn, so the art is a silhouette the palette tints and
+     the same 4KB file serves the slab, a watermark, or any future favicon. This
+     replaces a 127KB raster-traced SVG that had 231 near-identical navy fills
+     and had to be faked onto the dark slab with an invert + hue-rotate filter.
+
+     The aspect ratio is the source's measured ink bbox, not a square: the cog
+     ring is open on the right where the G's bar exits, so the mark is taller
+     than it is wide. It must stay on the element or `contain` squashes it.
+
+     The gradient runs 500 -> 400, both above the slab. The art's inner G sits at
+     roughly 0.56 alpha so it composites toward whatever is behind it, and now
+     that the slab is up at L 0.44 the darker steps vanish into it: 600 measures
+     only 2.6:1 against it, where 400 holds 5.2:1. The site also hangs a
+     drop-shadow glow on this mark; that is deliberately NOT ported — a glow
+     belongs to the marketing page's register, not to a shop tool. */
+  .cog-mark {
+    aspect-ratio: 1049 / 1254;
+    -webkit-mask: url(/coglin-mark.svg) center/contain no-repeat;
+    mask: url(/coglin-mark.svg) center/contain no-repeat;
+    background: linear-gradient(
+      0deg,
+      var(--goblin-500),
+      var(--goblin-400) 55%,
+      var(--goblin-400)
+    );
   }
 
   /* Note documents.

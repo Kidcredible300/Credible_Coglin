@@ -10,7 +10,7 @@ import type { CriterionState } from '@/types';
  * pieces, and here is which three are missing" is something a team can act on
  * this Tuesday. "57% ready" is not.
  *
- * The segments are square-ended and chunky — the same field-tape logic as the
+ * The segments are square-ended and chunky — the same bar logic as the
  * nav markers — so a readiness row reads at a glance from across a workshop.
  */
 export function EvidenceMeter({
