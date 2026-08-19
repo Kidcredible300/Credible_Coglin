@@ -1,15 +1,27 @@
 /**
- * Boards and tasks (COG-011, the slice meetings needs).
+ * Boards and tasks (COG-011, COG-012).
  *
- * This exists now because `src/lib/api.ts` already promises it: `mutateBoard`
- * says verbatim that `BoardOp` "takes the same op shape the server will accept
- * at POST /api/boards/:id/mutate". That contract was written before any server
- * existed, and leaving it unfulfilled would mean the kanban's drag-and-drop
- * needed a second, different write path. `/mutate` below is that endpoint, and
- * it takes exactly the union declared in `src/types.ts`.
+ * This exists because `src/lib/api.ts` promised it: `mutateBoard` says verbatim
+ * that `BoardOp` "takes the same op shape the server will accept at POST
+ * /api/boards/:id/mutate". That contract was written before any server existed,
+ * and leaving it unfulfilled would mean the kanban's drag-and-drop needed a
+ * second, different write path. `/mutate` below is that endpoint, and it takes
+ * exactly the union declared in `src/types.ts`.
+ *
+ * Statuses, the op cap and the patch builder live in `../lib/boards.ts` because
+ * `/mutate` and `PATCH /tasks/:id` have to agree about what a patch means.
  */
 import { Hono } from 'hono';
 import { nowSeconds, uuid } from '../lib/crypto';
+import {
+  MAX_DUE_AT,
+  MAX_OPS,
+  TASK_COLUMNS,
+  TASK_COLUMNS_T,
+  buildTaskPatch,
+  isTaskStatus,
+  taskPosition,
+} from '../lib/boards';
 import { boundedInt, optionalString, readJson } from '../lib/http';
 import { isSubTeam } from '../lib/roles';
 import {
@@ -23,23 +35,7 @@ import {
 
 const boards = new Hono<AppEnv>();
 
-/** One drag is one op; fifty is a bulk edit nobody performs by hand. */
-const MAX_OPS = 50;
-
-const TASK_STATUSES = ['todo', 'doing', 'blocked', 'done'] as const;
-type TaskStatus = (typeof TASK_STATUSES)[number];
-
-/**
- * Duplicated from `src/types.ts` for the same reason `roles.ts` is: the worker
- * tsconfig includes only `worker/`, and this copy is the one that decides what
- * reaches D1. Keep the two lists in sync.
- */
-function isTaskStatus(value: unknown): value is TaskStatus {
-  return typeof value === 'string' && (TASK_STATUSES as readonly string[]).includes(value);
-}
-
-const TASK_COLUMNS = `id, team_id, board_id, title, body, assignee_member_id, status,
-        due_at, position, decision_log, created_at, updated_at`;
+const BOARD_COLUMNS = 'id, team_id, season_id, name, sub_team, position';
 
 async function currentSeasonId(db: D1Database, teamId: string): Promise<string | null> {
   const row = await db
@@ -51,13 +47,25 @@ async function currentSeasonId(db: D1Database, teamId: string): Promise<string |
 
 // ------------------------------------------------------------------- boards
 
+/**
+ * Boards for the CURRENT season only.
+ *
+ * `season_id` was written on every insert from the first migration and never
+ * read back, so the alpha team's second season would have opened onto the
+ * first season's boards. A team with no current season gets an empty list
+ * rather than a 409: a read must not fail, and the empty state already says
+ * the right thing.
+ */
 boards.get('/boards', requireMember, async (c) => {
   const { teamId } = authOf(c);
+  const seasonId = await currentSeasonId(c.env.DB, teamId);
+  if (!seasonId) return c.json({ boards: [] });
+
   const { results } = await c.env.DB.prepare(
-    `SELECT id, team_id, season_id, name, sub_team, position FROM boards
-      WHERE team_id = ? ORDER BY position ASC`,
+    `SELECT ${BOARD_COLUMNS} FROM boards
+      WHERE team_id = ? AND season_id = ? ORDER BY position ASC`,
   )
-    .bind(teamId)
+    .bind(teamId, seasonId)
     .all();
   return c.json({ boards: results });
 });
@@ -81,10 +89,12 @@ boards.post(
       return c.json({ error: 'invalid_sub_team' }, 400);
     }
 
+    // Season-scoped, matching the read. A team-wide MAX would leave a new
+    // season's first board sorting after last season's last one.
     const max = await c.env.DB.prepare(
-      'SELECT COALESCE(MAX(position), 0) AS max FROM boards WHERE team_id = ?',
+      'SELECT COALESCE(MAX(position), 0) AS max FROM boards WHERE team_id = ? AND season_id = ?',
     )
-      .bind(teamId)
+      .bind(teamId, seasonId)
       .first<{ max: number }>();
 
     const id = uuid();
@@ -95,11 +105,62 @@ boards.post(
       .run();
 
     const row = await c.env.DB.prepare(
-      'SELECT id, team_id, season_id, name, sub_team, position FROM boards WHERE id = ? AND team_id = ?',
+      `SELECT ${BOARD_COLUMNS} FROM boards WHERE id = ? AND team_id = ?`,
     )
       .bind(id, teamId)
       .first();
     return c.json({ board: row }, 201);
+  },
+);
+
+/** Rename, re-file under a sub-team, or reorder the board tabs. */
+boards.patch(
+  '/boards/:id',
+  sameOriginOnly,
+  requireMember,
+  requireRole('coach', 'mentor'),
+  async (c) => {
+    const body = await readJson(c);
+    if (!body) return c.json({ error: 'invalid_body' }, 400);
+    const { teamId } = authOf(c);
+    const id = c.req.param('id');
+
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    if (body.name !== undefined) {
+      const name = optionalString(body.name, 100);
+      if (!name) return c.json({ error: 'missing_name' }, 400);
+      sets.push('name = ?');
+      values.push(name);
+    }
+    if (body.sub_team !== undefined) {
+      if (body.sub_team !== null && !isSubTeam(body.sub_team)) {
+        return c.json({ error: 'invalid_sub_team' }, 400);
+      }
+      sets.push('sub_team = ?');
+      values.push(body.sub_team);
+    }
+    if (body.position !== undefined) {
+      const position = boundedInt(body.position, 0, 1_000_000);
+      if (position === null) return c.json({ error: 'invalid_position' }, 400);
+      sets.push('position = ?');
+      values.push(position);
+    }
+    if (sets.length === 0) return c.json({ error: 'nothing_to_update' }, 400);
+
+    const result = await c.env.DB.prepare(
+      `UPDATE boards SET ${sets.join(', ')} WHERE id = ? AND team_id = ?`,
+    )
+      .bind(...values, id, teamId)
+      .run();
+    if (result.meta.changes === 0) return c.json({ error: 'not_found' }, 404);
+
+    const row = await c.env.DB.prepare(
+      `SELECT ${BOARD_COLUMNS} FROM boards WHERE id = ? AND team_id = ?`,
+    )
+      .bind(id, teamId)
+      .first();
+    return c.json({ board: row });
   },
 );
 
@@ -138,8 +199,51 @@ boards.delete(
   },
 );
 
+/**
+ * The board's revision, for polling (COG-009 shipped as polling rather than a
+ * Durable Object; see the plan and README).
+ *
+ * One aggregate query, one row read, on `idx_tasks_board`. Clients poll this
+ * and only refetch the task list when the answer changes, so a board nobody is
+ * touching costs a single row read per client per tick.
+ *
+ * `count` is not redundant with `rev`: MAX(updated_at) cannot see a DELETE. Drop
+ * the newest card and the max falls back to an older, unchanged timestamp — or,
+ * if an older card is deleted, does not move at all. The pair catches every
+ * mutation; either alone does not.
+ */
+boards.get('/boards/:id/rev', requireMember, async (c) => {
+  const { teamId } = authOf(c);
+  const id = c.req.param('id');
+
+  const board = await c.env.DB.prepare(
+    'SELECT id FROM boards WHERE id = ? AND team_id = ?',
+  )
+    .bind(id, teamId)
+    .first();
+  if (!board) return c.json({ error: 'not_found' }, 404);
+
+  const row = await c.env.DB.prepare(
+    `SELECT COALESCE(MAX(updated_at), 0) AS rev, COUNT(*) AS count
+       FROM tasks WHERE team_id = ? AND board_id = ?`,
+  )
+    .bind(teamId, id)
+    .first<{ rev: number; count: number }>();
+
+  return c.json({ rev: row?.rev ?? 0, count: row?.count ?? 0 });
+});
+
 // -------------------------------------------------------------------- tasks
 
+/**
+ * Tasks, either for one board or for the whole current season.
+ *
+ * `tasks` carries no `season_id` of its own — it inherits one through
+ * `board_id` — so the unfiltered case joins `boards` to avoid handing the
+ * dashboard last season's open-task count. With `board_id` given the join is
+ * unnecessary: the board is already team-scoped and belongs to exactly one
+ * season.
+ */
 boards.get('/tasks', requireMember, async (c) => {
   const { teamId } = authOf(c);
   const url = new URL(c.req.url);
@@ -149,14 +253,30 @@ boards.get('/tasks', requireMember, async (c) => {
     return c.json({ error: 'invalid_status' }, 400);
   }
 
+  if (boardId) {
+    const { results } = await c.env.DB.prepare(
+      `SELECT ${TASK_COLUMNS} FROM tasks
+        WHERE team_id = ? AND board_id = ?
+          AND (? IS NULL OR status = ?)
+        ORDER BY position ASC`,
+    )
+      .bind(teamId, boardId, status, status)
+      .all();
+    return c.json({ tasks: results });
+  }
+
+  const seasonId = await currentSeasonId(c.env.DB, teamId);
+  if (!seasonId) return c.json({ tasks: [] });
+
   const { results } = await c.env.DB.prepare(
-    `SELECT ${TASK_COLUMNS} FROM tasks
-      WHERE team_id = ?
-        AND (? IS NULL OR board_id = ?)
-        AND (? IS NULL OR status = ?)
-      ORDER BY position ASC`,
+    `SELECT ${TASK_COLUMNS_T}
+       FROM tasks t
+       JOIN boards b ON b.id = t.board_id AND b.team_id = t.team_id
+      WHERE t.team_id = ? AND b.season_id = ?
+        AND (? IS NULL OR t.status = ?)
+      ORDER BY t.position ASC`,
   )
-    .bind(teamId, boardId, boardId, status, status)
+    .bind(teamId, seasonId, status, status)
     .all();
   return c.json({ tasks: results });
 });
@@ -203,7 +323,7 @@ boards.post('/tasks', sameOriginOnly, requireMember, denyRole('viewer'), async (
       optionalString(body.body, 5000),
       optionalString(body.assignee_member_id, 64),
       status,
-      boundedInt(body.due_at, 0, 4_102_444_800),
+      boundedInt(body.due_at, 0, MAX_DUE_AT),
       (max?.max ?? 0) + 1024,
       optionalString(body.decision_log, 5000),
       now,
@@ -224,48 +344,13 @@ boards.patch('/tasks/:id', sameOriginOnly, requireMember, denyRole('viewer'), as
   if (!body) return c.json({ error: 'invalid_body' }, 400);
   const { teamId } = authOf(c);
 
-  const sets: string[] = [];
-  const values: unknown[] = [];
-  if (body.title !== undefined) {
-    const title = optionalString(body.title, 200);
-    if (!title) return c.json({ error: 'missing_title' }, 400);
-    sets.push('title = ?');
-    values.push(title);
-  }
-  if (body.body !== undefined) {
-    sets.push('body = ?');
-    values.push(optionalString(body.body, 5000));
-  }
-  if (body.status !== undefined) {
-    if (!isTaskStatus(body.status)) return c.json({ error: 'invalid_status' }, 400);
-    sets.push('status = ?');
-    values.push(body.status);
-  }
-  if (body.assignee_member_id !== undefined) {
-    sets.push('assignee_member_id = ?');
-    values.push(optionalString(body.assignee_member_id, 64));
-  }
-  if (body.due_at !== undefined) {
-    sets.push('due_at = ?');
-    values.push(body.due_at === null ? null : boundedInt(body.due_at, 0, 4_102_444_800));
-  }
-  if (body.decision_log !== undefined) {
-    sets.push('decision_log = ?');
-    values.push(optionalString(body.decision_log, 5000));
-  }
-  if (body.position !== undefined) {
-    sets.push('position = ?');
-    values.push(Number(body.position));
-  }
-  if (sets.length === 0) return c.json({ error: 'nothing_to_update' }, 400);
-
-  sets.push('updated_at = ?');
-  values.push(nowSeconds());
+  const patch = buildTaskPatch(body);
+  if ('error' in patch) return c.json({ error: patch.error }, 400);
 
   const result = await c.env.DB.prepare(
-    `UPDATE tasks SET ${sets.join(', ')} WHERE id = ? AND team_id = ?`,
+    `UPDATE tasks SET ${patch.sets.join(', ')}, updated_at = ? WHERE id = ? AND team_id = ?`,
   )
-    .bind(...values, c.req.param('id'), teamId)
+    .bind(...patch.values, nowSeconds(), c.req.param('id'), teamId)
     .run();
   if (result.meta.changes === 0) return c.json({ error: 'not_found' }, 404);
 
@@ -293,7 +378,8 @@ boards.delete('/tasks/:id', sameOriginOnly, requireMember, denyRole('viewer'), a
  *
  * Applied in one batch so a drag that moves a card and reorders its column
  * cannot land half-applied — which, on a board, looks to everyone else like
- * somebody else moved their card.
+ * somebody else moved their card. The same batching is what lets the client
+ * renumber an exhausted column in a single call.
  */
 boards.post(
   '/boards/:id/mutate',
@@ -322,11 +408,16 @@ boards.post(
       switch (op.op) {
         case 'move_task': {
           if (!isTaskStatus(op.status)) return c.json({ error: 'invalid_status' }, 400);
+          // Not `Number(x) || 0`: that mapped both a legitimate 0 and outright
+          // garbage onto the same position, which is how every card ended up
+          // stacked at 0 in the first place.
+          const position = taskPosition(op.position);
+          if (position === null) return c.json({ error: 'invalid_position' }, 400);
           statements.push(
             c.env.DB.prepare(
               `UPDATE tasks SET status = ?, position = ?, updated_at = ?
                 WHERE id = ? AND team_id = ? AND board_id = ?`,
-            ).bind(op.status, Number(op.position) || 0, now, op.task_id, teamId, boardId),
+            ).bind(op.status, position, now, op.task_id, teamId, boardId),
           );
           break;
         }
@@ -334,6 +425,8 @@ boards.post(
           const task = op.task as Record<string, unknown> | undefined;
           if (!task) return c.json({ error: 'invalid_op' }, 400);
           const status = isTaskStatus(task.status) ? task.status : 'todo';
+          const position = taskPosition(task.position);
+          if (position === null) return c.json({ error: 'invalid_position' }, 400);
           statements.push(
             c.env.DB.prepare(
               `INSERT INTO tasks
@@ -349,8 +442,8 @@ boards.post(
               optionalString(task.body, 5000),
               optionalString(task.assignee_member_id, 64),
               status,
-              boundedInt(task.due_at, 0, 4_102_444_800),
-              Number(task.position) || 0,
+              boundedInt(task.due_at, 0, MAX_DUE_AT),
+              position,
               optionalString(task.decision_log, 5000),
               now,
               now,
@@ -359,33 +452,18 @@ boards.post(
           break;
         }
         case 'update_task': {
-          const patch = (op.patch ?? {}) as Record<string, unknown>;
-          if (patch.status !== undefined && !isTaskStatus(patch.status)) {
-            return c.json({ error: 'invalid_status' }, 400);
-          }
+          // Shares `buildTaskPatch` with PATCH /tasks/:id so the two cannot
+          // drift on the question that matters here: an absent key leaves the
+          // column alone, an explicit null clears it. The old COALESCE form
+          // could not express the second, which made the decision log and the
+          // due date write-once.
+          const patch = buildTaskPatch((op.patch ?? {}) as Record<string, unknown>);
+          if ('error' in patch) return c.json({ error: patch.error }, 400);
           statements.push(
             c.env.DB.prepare(
-              `UPDATE tasks
-                  SET title = COALESCE(?, title),
-                      body = COALESCE(?, body),
-                      status = COALESCE(?, status),
-                      assignee_member_id = COALESCE(?, assignee_member_id),
-                      due_at = COALESCE(?, due_at),
-                      decision_log = COALESCE(?, decision_log),
-                      updated_at = ?
+              `UPDATE tasks SET ${patch.sets.join(', ')}, updated_at = ?
                 WHERE id = ? AND team_id = ? AND board_id = ?`,
-            ).bind(
-              optionalString(patch.title, 200),
-              optionalString(patch.body, 5000),
-              (patch.status as string | undefined) ?? null,
-              optionalString(patch.assignee_member_id, 64),
-              boundedInt(patch.due_at, 0, 4_102_444_800),
-              optionalString(patch.decision_log, 5000),
-              now,
-              op.task_id,
-              teamId,
-              boardId,
-            ),
+            ).bind(...patch.values, now, op.task_id, teamId, boardId),
           );
           break;
         }
