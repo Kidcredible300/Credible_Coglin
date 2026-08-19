@@ -309,11 +309,11 @@ function DayCell({
           !inMonth && 'text-muted-foreground/60',
         )}
       >
-        {/* Today is field tape across the top of the cell. A filled disc behind
+        {/* Today is a brand bar across the top of the cell. A filled disc behind
             the date is the obvious choice and is wrong: it would be the only
             other fill in this grid, so it reads as "selected" on the one day you
             have not selected. */}
-        {isToday && <span className="u-tape absolute inset-x-1 top-0 h-[3px]" aria-hidden />}
+        {isToday && <span className="u-bar absolute inset-x-1 top-0 h-[3px]" aria-hidden />}
 
         <span
           className={cn('tabular font-mono text-xs leading-none', isToday && 'font-bold')}

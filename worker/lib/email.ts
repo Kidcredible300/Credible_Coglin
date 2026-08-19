@@ -77,30 +77,30 @@ function render(mail: InviteMail): { subject: string; html: string; text: string
 
   const html = `<!doctype html>
 <html>
-  <body style="margin:0;padding:24px;background:#f6f6f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1c1b1a;">
+  <body style="margin:0;padding:24px;background:#f4f7f4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#16201a;">
     <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;">
       <p style="margin:0 0 16px;font-size:18px;line-height:1.5;">
         <strong>${escapeHtml(mail.inviterName)}</strong> has invited you to join
         <strong>${escapeHtml(team)}</strong> on Coglin.
       </p>
-      <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#57534e;">
+      <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#4e5a52;">
         Coglin is where the team keeps its boards, roster, and outreach log for
         the season. Open the link below to choose your username and password.
       </p>
       <p style="margin:0 0 24px;">
-        <a href="${safeUrl}" style="display:inline-block;background:#1c1b1a;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-size:15px;">
+        <a href="${safeUrl}" style="display:inline-block;background:#4fce74;color:#05190d;text-decoration:none;padding:12px 20px;border-radius:8px;font-size:15px;">
           Set up your account
         </a>
       </p>
-      <p style="margin:0 0 8px;font-size:13px;line-height:1.6;color:#78716c;">
+      <p style="margin:0 0 8px;font-size:13px;line-height:1.6;color:#6f7a72;">
         Or paste this into your browser:<br />
         <span style="word-break:break-all;">${safeUrl}</span>
       </p>
-      <p style="margin:24px 0 0;font-size:13px;line-height:1.6;color:#78716c;">
+      <p style="margin:24px 0 0;font-size:13px;line-height:1.6;color:#6f7a72;">
         The link works once and expires in ${mail.expiresInDays} days. If you
         weren't expecting this, you can ignore this email.
       </p>
-      <p style="margin:24px 0 0;font-size:12px;color:#a8a29e;">
+      <p style="margin:24px 0 0;font-size:12px;color:#9aa39c;">
         Coglin is not affiliated with or endorsed by FIRST®.
       </p>
     </div>

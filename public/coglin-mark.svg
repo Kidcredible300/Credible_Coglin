@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="314 144 1049 1254">
+  <!-- Coglin mark - cog + G monogram, extracted from the official logo (Coglin PR #5, Robert Kurc). The 'Coglin' wordmark is omitted: every page that uses this prints the name as text. The source art is navy line-work on white, so the silhouette is derived by mapping luminance to alpha (alpha = 1 - luminance) rather than by editing path data: that flattens the real paint stack, so z-order is preserved and the counters stay open. The grey G lands near 0.56 alpha, which keeps the original two-tone reading when the mark is tinted. Used as a CSS mask, so only alpha is ever read and the ink colours below are irrelevant. -->
+  <filter id="coglin-ink" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse" x="314" y="144" width="1049" height="1254">
+    <feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -0.2126 -0.7152 -0.0722 0 1"/>
+  </filter>
+  <g id="coglin-cog" filter="url(#coglin-ink)"><rect x="314" y="144" width="1049" height="1254" fill="#ffffff"/><g style="display:inline">
+    <path style="display:inline;fill:#132a49;fill-opacity:1;stroke-width:1.87319" d="M 1338.9742,1115.6023 A 515,515 0 0 1 771.69515,1251.7939 515,515 0 0 1 441.25464,771 515,515 0 0 1 771.69514,290.20608 515,515 0 0 1 1338.9742,426.39773 L 956.25464,771 Z"/>
+    <g>
+      <g transform="translate(-14.769146,-3.7e-4)">
+        <path style="display:inline;fill:#132a49;fill-opacity:1;stroke-width:1.31123" d="m 864.31002,168.01974 h 183.88928 l 65.0003,175.96052 H 799.30964 Z"/>
+        <path style="display:inline;fill:#ffffff;fill-opacity:1;stroke-width:1.31123" d="m 894.31,208.02 h 123.89 l 45,135.961 -213.89,-4.8e-4 z"/>
+      </g>
+      <g transform="rotate(-44.999991,948.86964,788.82811)">
+        <path style="display:inline;fill:#132a49;fill-opacity:1;stroke-width:1.31123" d="m 864.31002,168.01974 h 183.88928 l 65.0003,175.96052 H 799.30964 Z"/>
+        <path style="display:inline;fill:#ffffff;fill-opacity:1;stroke-width:1.31123" d="m 894.31,208.02 h 123.89 l 45,135.961 -213.89,-4.8e-4 z"/>
+      </g>
+      <g transform="rotate(-90,948.86983,778.38473)">
+        <path style="display:inline;fill:#132a49;fill-opacity:1;stroke-width:1.31123" d="m 864.31002,168.01974 h 183.88928 l 65.0003,175.96052 H 799.30964 Z"/>
+        <path style="display:inline;fill:#ffffff;fill-opacity:1;stroke-width:1.31123" d="m 894.31,208.02 h 123.89 l 45,135.961 -213.89,-4.8e-4 z"/>
+      </g>
+      <g transform="rotate(-135,948.86996,774.05893)">
+        <path style="display:inline;fill:#132a49;fill-opacity:1;stroke-width:1.31123" d="m 864.31002,168.01974 h 183.88928 l 65.0003,175.96052 H 799.30964 Z"/>
+        <path style="display:inline;fill:#ffffff;fill-opacity:1;stroke-width:1.31123" d="m 894.31,208.02 h 123.89 l 45,135.961 -213.89,-4.8e-4 z"/>
+      </g>
+      <g transform="rotate(180,948.87005,771.0002)">
+        <path style="display:inline;fill:#132a49;fill-opacity:1;stroke-width:1.31123" d="m 864.31002,168.01974 h 183.88928 l 65.0003,175.96052 H 799.30964 Z"/>
+        <path style="display:inline;fill:#ffffff;fill-opacity:1;stroke-width:1.31123" d="m 894.31,208.02 h 123.89 l 45,135.961 -213.89,-4.8e-4 z"/>
+      </g>
+    </g>
+    <path style="display:inline;fill:#ffffff;fill-opacity:1;stroke-width:1.87319" d="m 1267.4004,1116.5623 a 465,465 0 0 1 -645.63877,-22.5462 465,465 0 0 1 1e-5,-646.03225 465,465 0 0 1 645.63876,-22.54618 L 956.25464,771 Z"/>
+    <path style="fill:#132a49;fill-opacity:1;stroke-width:0.931401" d="M 1253.5126,1039.7613 A 400,400 0 0 1 812.90746,1145.5412 400,400 0 0 1 556.25464,772.10907 400,400 0 0 1 812.90745,398.6769 400,400 0 0 1 1253.5126,504.45682 L 956.25464,772.10907 Z"/>
+    <circle style="fill:#ffffff;fill-opacity:1;stroke-width:0.931401" cx="956.25464" cy="772.10907" r="345.61511"/>
+  </g>
+  <path d="m 0,0 c 37.110818,-0.09740962 139.94685,8.5308465 214.03921,100.108 -4.00867,4.90691 -28.57452,27.24382 -33.41421,32.2045 -62.16652,-81.351851 -165.222957,-84.486876 -190,-84 -316.12121,7.498678 -268.32934,506.6648 47.75024,459 49.582079,-6.30341 177.47743,-54.18454 200.24976,-206 h -237 v -48 h 286 c 0.31045,218.92248 -172.51238,335.09157 -349,293 -173.30799,-39.15061 -277.40568,-258.69627 -167,-421 C -197.0864,78.469428 -126.97719,2.5946322 0,0 Z" fill="#adadb2" transform="translate(949.375,494.6875)"/>
+  </g>
+</svg>
