@@ -380,9 +380,17 @@ function Row({
           to={`/notes/${doc.id}`}
           className="focus-visible:ring-ring relative flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded text-sm focus-visible:ring-2 focus-visible:outline-none md:min-h-8"
         >
-          {/* The same tape mark a flagged block used to get in the gutter. */}
+          {/* The same brand bar a flagged block used to get in the gutter.
+
+              -left-1.5 puts it in the row's gap, not on the title: the Link has
+              no left padding of its own (unlike the sidebar's SideLink, which
+              parks its bar inside a pl-4), so the bar has to be pushed out past
+              the text origin. -6px centres it in the 9px corridor between the
+              chevron glyph and the first character — 3px clear either side. It
+              is absolute rather than a flex child so a flagged row keeps the
+              same title alignment as an unflagged one. */}
           {flagged.has(doc.id) && (
-            <span className="u-tape absolute top-1 bottom-1 -left-0.5 w-[3px]" aria-hidden />
+            <span className="u-bar absolute top-1 bottom-1 -left-1.5 w-[3px]" aria-hidden />
           )}
           <span
             className={cn(

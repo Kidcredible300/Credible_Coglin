@@ -147,7 +147,7 @@ export default function Boards() {
               {b.name}
               {b.id === boardId && (
                 <span
-                  className="u-tape absolute inset-x-2 -bottom-2 h-[3px]"
+                  className="u-bar absolute inset-x-2 -bottom-2 h-[3px]"
                   aria-hidden
                 />
               )}

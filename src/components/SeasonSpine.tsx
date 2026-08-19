@@ -9,11 +9,11 @@ import type { CalendarEvent, Season } from '@/types';
  * qualifier" or "after portfolio print". This is the one orienting fact the
  * dashboard owes them, so it opens the page rather than sitting in a widget.
  *
- * The elapsed run is drawn as field tape laid along the season — the same
+ * The elapsed run is drawn as a solid bar laid along the season — the same
  * device as the nav markers, used here at full width where it can carry the
  * page.
  *
- * `onInk` restyles it for the dashboard's slab. Everything that is not tape or
+ * `onInk` restyles it for the dashboard's slab. Everything that is not bar or
  * alarm becomes white at an opacity, because on ink the only thing separating
  * a milestone from the track is how much light it lets through.
  */
@@ -36,6 +36,9 @@ export function SeasonSpine({
         past: 'bg-ink-foreground/35',
         future: 'bg-ink-foreground/60',
         alarm: 'bg-ink-destructive',
+        // The slab is light enough that the 500 goes soft against it; on ink the
+        // elapsed run uses the brighter step. See .u-bar-ink in index.css.
+        elapsed: 'u-bar-ink',
       }
     : {
         muted: 'text-muted-foreground',
@@ -44,6 +47,7 @@ export function SeasonSpine({
         past: 'bg-primary-foreground/40',
         future: 'bg-foreground/45',
         alarm: 'bg-destructive',
+        elapsed: 'u-bar',
       };
 
   const span = season.ends_at - season.starts_at;
@@ -66,7 +70,7 @@ export function SeasonSpine({
         <div className={cn('h-2.5 w-full rounded-[1px]', c.track)} />
         {/* Elapsed */}
         <div
-          className="u-tape absolute top-0 left-0 h-2.5"
+          className={cn('absolute top-0 left-0 h-2.5', c.elapsed)}
           style={{ width: `${elapsed}%` }}
           aria-hidden
         />

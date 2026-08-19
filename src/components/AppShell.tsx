@@ -66,7 +66,7 @@ export function AppShell() {
 
       {/* ---------- Mobile top bar ---------- */}
       <div className="bg-background/95 border-border sticky top-0 z-30 flex items-center gap-3 border-b px-4 py-3 backdrop-blur md:hidden">
-        <span className="u-tape h-5 w-1.5 shrink-0" aria-hidden />
+        <span className="u-bar h-5 w-1.5 shrink-0" aria-hidden />
         <div className="min-w-0 flex-1">
           <div className="u-display truncate text-base leading-none">
             {current?.label ?? 'Coglin'}
@@ -138,7 +138,7 @@ export function AppShell() {
               <>
                 {isActive && (
                   <span
-                    className="u-tape absolute inset-x-3 top-0 h-[3px]"
+                    className="u-bar absolute inset-x-3 top-0 h-[3px]"
                     aria-hidden
                   />
                 )}
@@ -163,14 +163,14 @@ function TeamMark({ team }: { team: Session['team'] }) {
     <div className="border-ink-border flex items-center gap-3 border-b px-4 py-4">
       {/* Slot for the team's own logo, which teams put on everything —
           shirts, pit banner, the robot. There is no column for it yet
-          (COG-0xx, Settings), so it holds a tape mark at the right size
+          (COG-0xx, Settings), so it holds a brand bar at the right size
           rather than a broken image or a grey void. */}
       <span
         className="bg-ink-foreground/10 flex size-9 shrink-0 items-center justify-center rounded-md"
         title="Team logo — set in Settings"
         aria-hidden
       >
-        <span className="u-tape h-4 w-[3px]" />
+        <span className="u-bar-ink h-4 w-[3px]" />
       </span>
       <div className="min-w-0">
         <div className="tabular font-mono text-lg leading-none font-bold">
@@ -185,9 +185,9 @@ function TeamMark({ team }: { team: Session['team'] }) {
 /**
  * Product mark and theme control, pinned to the bottom of the slab.
  *
- * The logo art is dark-on-white, so it is inverted and screened onto the ink
- * rather than shipped as a second file: one asset, and it stays correct if the
- * slab colour is ever retuned.
+ * The mark is a mask tinted by the palette (`.cog-mark` in index.css), so it
+ * stays correct if the slab or the brand colour is ever retuned — no second
+ * asset, and no filter trickery to get dark artwork onto a dark surface.
  */
 function SidebarFoot() {
   const { member } = useSession();
@@ -216,15 +216,10 @@ function SidebarFoot() {
         </button>
       </div>
       <div className="border-ink-border flex items-center justify-between border-t px-3 py-3">
-        <img
-          src="/coglin-logo.svg"
-          alt="Coglin"
-          // One arbitrary filter, not `invert hue-rotate-180`: Tailwind emits
-          // filter functions in a canonical order, and here the order is the
-          // effect — invert first turns the navy artwork light and the white
-          // plate black, then the hue rotation puts the blue back. Screen drops
-          // the now-black plate onto the slab.
-          className="[filter:invert(1)_hue-rotate(180deg)] block h-11 mix-blend-screen"
+        <span
+          role="img"
+          aria-label="Coglin"
+          className="cog-mark block h-11"
         />
         <ThemeToggle />
       </div>
@@ -256,10 +251,10 @@ function SideLink({
     >
       {({ isActive }) => (
         <>
-          {/* Field tape marks the active row — a solid bar, not a hairline. */}
+          {/* A brand bar marks the active row — solid, not a hairline. */}
           {isActive && (
             <span
-              className="u-tape absolute top-1.5 bottom-1.5 left-0 w-1"
+              className="u-bar-ink absolute top-1.5 bottom-1.5 left-0 w-1"
               aria-hidden
             />
           )}

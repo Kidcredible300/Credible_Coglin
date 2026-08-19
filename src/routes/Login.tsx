@@ -72,7 +72,7 @@ export default function Login() {
     <div className="bg-background flex min-h-dvh items-center justify-center px-4 py-12">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex items-center gap-3">
-          <span className="u-tape h-8 w-1.5 shrink-0" aria-hidden />
+          <span className="u-bar h-8 w-1.5 shrink-0" aria-hidden />
           <h1 className="u-display text-2xl leading-none">Coglin</h1>
         </div>
 

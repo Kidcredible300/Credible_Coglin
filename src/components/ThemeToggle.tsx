@@ -16,7 +16,7 @@ const OPTIONS: { value: Theme; label: string; Icon: typeof Sun }[] = [
  *
  * Styled for the ink slab, which is the only place it lives (sidebar foot, and
  * the same foot inside the mobile sheet). Selection is a lift in the surface
- * rather than a fill — a coloured chip here would compete with the tape marker
+ * rather than a fill — a coloured chip here would compete with the bar marker
  * two inches above it.
  */
 export function ThemeToggle() {
